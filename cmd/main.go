@@ -47,7 +47,7 @@ func main() {
 	router2.Extends("double", router3)
 	router.Extends("api", router2)
 
-	if err := router.Run(8081); err != nil {
-		panic(err)
-	}
+	// if err := router.Run(8081); err != nil {
+	// 	panic(err)
+	// }
 }

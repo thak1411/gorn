@@ -101,13 +101,17 @@ func (c *Context) BindJsonBody(obj interface{}) error {
 }
 
 // Get Params Value From key
-// If Key Not Found, Return Empty String
-func (c *Context) GetParam(key string) string {
-	return c.request.URL.Query().Get(key)
+// If Key Not Found, Return default Value
+func (c *Context) GetParam(key, defaultValue string) string {
+	if c.request.URL.Query().Has(key) {
+		return c.request.URL.Query().Get(key)
+	} else {
+		return defaultValue
+	}
 }
 
 // Get Params integer Value From key
-// If Key Not Found, Return Empty String
+// If Key Not Found, Return default Value
 func (c *Context) GetParamInt(key string, defaultValue int) int {
 	str := c.request.URL.Query().Get(key)
 	i, err := strconv.ParseInt(str, 10, 64)
@@ -118,7 +122,7 @@ func (c *Context) GetParamInt(key string, defaultValue int) int {
 }
 
 // Get Params 64bit integer Value From key
-// If Key Not Found, Return Empty String
+// If Key Not Found, Return default Value
 func (c *Context) GetParamInt64(key string, defaultValue int64) int64 {
 	str := c.request.URL.Query().Get(key)
 	i, err := strconv.ParseInt(str, 10, 64)

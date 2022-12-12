@@ -3,28 +3,110 @@ package gorn
 import (
 	"fmt"
 	"reflect"
+	"strings"
 )
 
 type Sql struct {
 	query string
 }
 
-func (s *Sql) Select(obj interface{}) *Sql {
-	target := reflect.ValueOf(obj)
+func (s *Sql) Select(table interface{}) *Sql {
+	target := reflect.ValueOf(table)
 	if target.Kind() == reflect.Ptr {
 		target = target.Elem()
 	}
 	if target.Kind() != reflect.Struct {
-		panic("obj must be struct")
+		panic("table must be struct")
 	}
 	s.query += "SELECT "
 	for i := 0; i < target.NumField(); i++ {
-		gsql, ok := target.Type().Field(i).Tag.Lookup("gsql")
+		rnsql, ok := target.Type().Field(i).Tag.Lookup("rnsql")
 		if ok {
-			s.query += gsql + ", "
+			s.query += rnsql + ", "
 		}
 	}
 	s.query = s.query[:len(s.query)-2] + " "
+	return s
+}
+
+func (s *Sql) Create(tableName string, table interface{}) *Sql {
+	target := reflect.ValueOf(table)
+	if target.Kind() == reflect.Ptr {
+		target = target.Elem()
+	}
+	if target.Kind() != reflect.Struct {
+		panic("table must be struct")
+	}
+	primaryKey := []string{}
+	foreignKey := []string{}
+	s.query += fmt.Sprintf("CREATE TABLE IF NOT EXISTS `%s` ( ", tableName)
+	for i := 0; i < target.NumField(); i++ {
+		rnsql, ok := target.Type().Field(i).Tag.Lookup("rnsql")
+		rnsql = "`" + rnsql + "`"
+		if ok {
+			if rntype, ok := target.Type().Field(i).Tag.Lookup("rntype"); ok {
+				s.query += rnsql + " " + rntype + " "
+			} else {
+				panic("rntype not found")
+			}
+			options := []string{"NN", "UQ", "BIN", "UN", "ZF", "AI"}
+			optionName := []string{"NOT NULL", "UNIQUE", "BINARY", "UNSIGNED", "ZEROFILL", "AUTO_INCREMENT"}
+			for j, option := range options {
+				if _, ok := target.Type().Field(i).Tag.Lookup(option); ok {
+					s.query += optionName[j] + " "
+				}
+			}
+			s.query += ", "
+			if _, ok := target.Type().Field(i).Tag.Lookup("PK"); ok {
+				primaryKey = append(primaryKey, rnsql)
+			}
+			if fk, ok := target.Type().Field(i).Tag.Lookup("FK"); ok {
+				if fkRef, ok := target.Type().Field(i).Tag.Lookup("FK_REF"); !ok {
+					foreignKey = append(foreignKey, rnsql, fk, fkRef)
+				}
+			}
+		}
+	}
+	if len(primaryKey) > 0 {
+		s.query += "PRIMARY KEY (" + strings.Join(primaryKey, ", ") + "), "
+	}
+	for i := 0; i < len(foreignKey); i += 3 {
+		s.query += fmt.Sprintf("CONSTRAINT `RN_FK_%s` ", tableName) +
+			fmt.Sprintf("FOREIGN KEY (%s) ", foreignKey[i]) +
+			fmt.Sprintf("REFERENCES %s (%s) ", foreignKey[i+1], foreignKey[i+2]) +
+			"ON DELETE NO ACTION ON UPDATE NO ACTION, "
+	}
+	s.query = s.query[:len(s.query)-2] + " ) ENGINE = InnoDB;"
+	return s
+}
+
+func (s *Sql) Insert(tableName string, table interface{}) *Sql {
+	target := reflect.ValueOf(table)
+	if target.Kind() == reflect.Ptr {
+		target = target.Elem()
+	}
+	if target.Kind() != reflect.Struct {
+		panic("table must be struct")
+	}
+	valueCount := 0
+	s.query += "INSERT INTO " + tableName + " ("
+	for i := 0; i < target.NumField(); i++ {
+		rnsql, ok := target.Type().Field(i).Tag.Lookup("rnsql")
+		if ok {
+			if _, ok := target.Type().Field(i).Tag.Lookup("AI"); !ok {
+				s.query += rnsql + ", "
+				valueCount += 1
+			}
+		}
+	}
+	if valueCount > 0 {
+		s.query = s.query[:len(s.query)-2]
+	}
+	s.query += ") VALUES (" + strings.Repeat("?, ", valueCount)
+	if valueCount > 0 {
+		s.query = s.query[:len(s.query)-2]
+	}
+	s.query += ") "
 	return s
 }
 
@@ -90,6 +172,10 @@ func (s *Sql) AddPlainQuery(query string) *Sql {
 
 func (s *Sql) Query() string {
 	return s.query + ";"
+}
+
+func (s *Sql) NestedQuery() string {
+	return "(" + s.query + ")"
 }
 
 func (s *Sql) Clear() {

@@ -16,7 +16,7 @@ type DB struct {
 }
 
 // Connect to Database
-func (d *DB) OpenDB(conf *DBConfig) error {
+func (d *DB) Open(conf *DBConfig) error {
 	d.conf = conf
 	db, err := sql.Open(
 		d.Engine,
@@ -65,6 +65,44 @@ func (d *DB) Prepare(ctx context.Context, sql *Sql) (*sql.Stmt, error) {
 	return d.h.Container.PrepareContext(ctx, sql.Query())
 }
 
+// Insert Row
+func (d *DB) Insert(ctx context.Context, tableName string, table interface{}) (int64, error) {
+	sql := NewSql().Insert(tableName, table)
+	fmt.Println(sql.Query())
+	target := reflect.ValueOf(table)
+	if target.Kind() == reflect.Ptr {
+		target = target.Elem()
+	}
+	if target.Kind() != reflect.Struct {
+		panic("table must be struct")
+	}
+	params := make([]interface{}, 0)
+	for i := 0; i < target.NumField(); i++ {
+		_, ok := target.Type().Field(i).Tag.Lookup("rnsql")
+		if ok {
+			if _, ok := target.Type().Field(i).Tag.Lookup("AI"); !ok {
+				params = append(params, target.Field(i).Interface())
+			}
+		}
+	}
+	result, err := d.Exec(ctx, sql, params...)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+// Select Rows
+func (d *DB) Select(ctx context.Context, tableName string, table interface{}, dest interface{}) error {
+	sql := NewSql().Select(table).From(tableName)
+	rows, err := d.Query(ctx, sql)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	return d.ScanRows(rows, dest)
+}
+
 // Scan Row
 func (d *DB) ScanRow(row *sql.Row, dest interface{}) error {
 	target := reflect.ValueOf(dest)
@@ -76,7 +114,7 @@ func (d *DB) ScanRow(row *sql.Row, dest interface{}) error {
 	}
 	params := make([]interface{}, 0)
 	for i := 0; i < target.NumField(); i++ {
-		_, ok := target.Type().Field(i).Tag.Lookup("gsql")
+		_, ok := target.Type().Field(i).Tag.Lookup("rnsql")
 		if ok {
 			params = append(params, target.Field(i).Addr().Interface())
 		}
@@ -104,7 +142,7 @@ func (d *DB) ScanRows(rows *sql.Rows, dest interface{}) error {
 		}
 		params := make([]interface{}, 0)
 		for i := 0; i < item.Elem().NumField(); i++ {
-			_, ok := item.Elem().Type().Field(i).Tag.Lookup("gsql")
+			_, ok := item.Elem().Type().Field(i).Tag.Lookup("rnsql")
 			if ok {
 				params = append(params, item.Elem().Field(i).Addr().Interface())
 			}
@@ -124,7 +162,7 @@ func (d *DB) ScanRows(rows *sql.Rows, dest interface{}) error {
 // Has Table
 func (d *DB) HasTable(tableName string) (bool, error) {
 	type Table struct {
-		Count int64 `gsql:"COUNT(TABLE_NAME)"`
+		Count int64 `rnsql:"COUNT(TABLE_NAME)"`
 	}
 	table := &Table{}
 	sql := NewSql().
@@ -148,8 +186,8 @@ func (d *DB) HasTable(tableName string) (bool, error) {
 // Has Column
 func (d *DB) HasColumn(tableName, columnName string) (bool, string, error) {
 	type Column struct {
-		Count    int64  `gsql:"COUNT(COLUMN_NAME)"`
-		DataType string `gsql:"MAX(DATA_TYPE)"`
+		Count    int64  `rnsql:"COUNT(COLUMN_NAME)"`
+		DataType string `rnsql:"MAX(DATA_TYPE)"`
 	}
 	column := &Column{}
 	sql := NewSql().
@@ -191,17 +229,38 @@ func (d *DB) GetColumns(tableName string) (*[]*DBColumn, error) {
 
 // Migration Table
 func (d *DB) Migration(tableName string, table interface{}) error {
-	// if has, err := d.HasTable(tableName); err != nil {
+	if has, err := d.HasTable(tableName); err != nil {
+		return err
+	} else if has {
+		if err := d.AlterTable(tableName, table); err != nil {
+			return err
+		}
+	} else {
+		if err := d.CreateTable(tableName, table); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Create Table
+func (d *DB) CreateTable(tableName string, table interface{}) error {
+	sql := NewSql().Create(tableName, table)
+	if res, err := d.Exec(context.Background(), sql); err != nil {
+		return err
+	} else if _, err := res.RowsAffected(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Alter Table
+func (d *DB) AlterTable(tableName string, table interface{}) error {
+	// columns, err := d.GetColumns(tableName)
+	// if err != nil {
 	// 	return err
-	// } else if !has {
-	// 	if err := d.CreateTable(table); err != nil {
-	// 		return err
-	// 	}
-	// } else {
-	// 	if err := d.AlterTable(table); err != nil {
-	// 		return err
-	// 	}
 	// }
+
 	return nil
 }
 

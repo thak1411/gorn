@@ -3,9 +3,9 @@ package main
 import "github.com/thak1411/gorn"
 
 func main() {
-	router := gorn.New()
-	router2 := gorn.New()
-	router3 := gorn.New()
+	router := gorn.NewRouter()
+	router2 := gorn.NewRouter()
+	router3 := gorn.NewRouter()
 	router.Get("/", func(c *gorn.Context) { // {URL}/
 		c.SendPlainText(200, "Hello World")
 	})

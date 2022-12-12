@@ -139,7 +139,7 @@ func (r *Router) Run(port int) error {
 }
 
 // Generate a Gorn Router
-func New() *Router {
+func NewRouter() *Router {
 	return &Router{
 		mux:           http.NewServeMux(),
 		handler:       make(map[string]bool),

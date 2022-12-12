@@ -8,15 +8,13 @@ import (
 	"path"
 )
 
-type HttpHandler func(w http.ResponseWriter, r *http.Request)
-
 type Router struct {
 	mux           *http.ServeMux
-	Handler       map[string]bool
-	GetHandler    map[string][]func(c *Context)
-	PostHandler   map[string][]func(c *Context)
-	PutHandler    map[string][]func(c *Context)
-	DeleteHandler map[string][]func(c *Context)
+	handler       map[string]bool
+	getHandler    map[string][]func(c *Context)
+	postHandler   map[string][]func(c *Context)
+	putHandler    map[string][]func(c *Context)
+	deleteHandler map[string][]func(c *Context)
 }
 
 // copy handler
@@ -36,10 +34,10 @@ func copyHandler(
 // Extends Router
 func (r *Router) Extends(prefix string, router *Router) {
 	prefix = "/" + prefix
-	copyHandler(prefix, r.Handler, r.GetHandler, router.GetHandler)
-	copyHandler(prefix, r.Handler, r.PostHandler, router.PostHandler)
-	copyHandler(prefix, r.Handler, r.PutHandler, router.PutHandler)
-	copyHandler(prefix, r.Handler, r.DeleteHandler, router.DeleteHandler)
+	copyHandler(prefix, r.handler, r.getHandler, router.getHandler)
+	copyHandler(prefix, r.handler, r.postHandler, router.postHandler)
+	copyHandler(prefix, r.handler, r.putHandler, router.putHandler)
+	copyHandler(prefix, r.handler, r.deleteHandler, router.deleteHandler)
 }
 
 // Regist Get Function to Router
@@ -47,8 +45,8 @@ func (r *Router) Get(path string, handler ...func(c *Context)) {
 	if len(handler) < 1 {
 		return
 	}
-	r.Handler[path] = true
-	r.GetHandler[path] = handler
+	r.handler[path] = true
+	r.getHandler[path] = handler
 }
 
 // Regist Post Function to Router
@@ -56,8 +54,8 @@ func (r *Router) Post(path string, handler ...func(c *Context)) {
 	if len(handler) < 1 {
 		return
 	}
-	r.Handler[path] = true
-	r.PostHandler[path] = handler
+	r.handler[path] = true
+	r.postHandler[path] = handler
 }
 
 // Regist Put Function to Router
@@ -65,8 +63,8 @@ func (r *Router) Put(path string, handler ...func(c *Context)) {
 	if len(handler) < 1 {
 		return
 	}
-	r.Handler[path] = true
-	r.PutHandler[path] = handler
+	r.handler[path] = true
+	r.putHandler[path] = handler
 }
 
 // Regist Delete Function to Router
@@ -74,17 +72,17 @@ func (r *Router) Delete(path string, handler ...func(c *Context)) {
 	if len(handler) < 1 {
 		return
 	}
-	r.Handler[path] = true
-	r.DeleteHandler[path] = handler
+	r.handler[path] = true
+	r.deleteHandler[path] = handler
 }
 
 // Preparing Router
 func (r *Router) prepare() {
-	for p := range r.Handler {
-		getHandler, hasGetHandler := r.GetHandler[p]
-		postHandler, hasPostHandler := r.PostHandler[p]
-		putHandler, hasPutHandler := r.PutHandler[p]
-		deleteHandler, hasDeleteHandler := r.DeleteHandler[p]
+	for p := range r.handler {
+		getHandler, hasGetHandler := r.getHandler[p]
+		postHandler, hasPostHandler := r.postHandler[p]
+		putHandler, hasPutHandler := r.putHandler[p]
+		deleteHandler, hasDeleteHandler := r.deleteHandler[p]
 		r.mux.HandleFunc(p, func(w http.ResponseWriter, req *http.Request) {
 			c := &Context{
 				responseWriter: w,
@@ -144,10 +142,10 @@ func (r *Router) Run(port int) error {
 func New() *Router {
 	return &Router{
 		mux:           http.NewServeMux(),
-		Handler:       make(map[string]bool),
-		GetHandler:    make(map[string][]func(c *Context)),
-		PostHandler:   make(map[string][]func(c *Context)),
-		PutHandler:    make(map[string][]func(c *Context)),
-		DeleteHandler: make(map[string][]func(c *Context)),
+		handler:       make(map[string]bool),
+		getHandler:    make(map[string][]func(c *Context)),
+		postHandler:   make(map[string][]func(c *Context)),
+		putHandler:    make(map[string][]func(c *Context)),
+		deleteHandler: make(map[string][]func(c *Context)),
 	}
 }

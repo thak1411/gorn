@@ -67,24 +67,7 @@ func (d *DB) Prepare(ctx context.Context, sql *Sql) (*sql.Stmt, error) {
 
 // Insert Row
 func (d *DB) Insert(ctx context.Context, tableName string, table interface{}) (int64, error) {
-	sql := NewSql().Insert(tableName, table)
-	fmt.Println(sql.Query())
-	target := reflect.ValueOf(table)
-	if target.Kind() == reflect.Ptr {
-		target = target.Elem()
-	}
-	if target.Kind() != reflect.Struct {
-		panic("table must be struct")
-	}
-	params := make([]interface{}, 0)
-	for i := 0; i < target.NumField(); i++ {
-		_, ok := target.Type().Field(i).Tag.Lookup("rnsql")
-		if ok {
-			if _, ok := target.Type().Field(i).Tag.Lookup("AI"); !ok {
-				params = append(params, target.Field(i).Interface())
-			}
-		}
-	}
+	sql, params := NewSql().InsertWithParams(tableName, table)
 	result, err := d.Exec(ctx, sql, params...)
 	if err != nil {
 		return 0, err
@@ -184,10 +167,9 @@ func (d *DB) HasTable(tableName string) (bool, error) {
 }
 
 // Has Column
-func (d *DB) HasColumn(tableName, columnName string) (bool, string, error) {
+func (d *DB) HasColumn(tableName, columnName string) (bool, error) {
 	type Column struct {
-		Count    int64  `rnsql:"COUNT(COLUMN_NAME)"`
-		DataType string `rnsql:"MAX(DATA_TYPE)"`
+		Count int64 `rnsql:"COUNT(COLUMN_NAME)"`
 	}
 	column := &Column{}
 	sql := NewSql().
@@ -202,10 +184,9 @@ func (d *DB) HasColumn(tableName, columnName string) (bool, string, error) {
 		sql,
 		d.conf.Schema,
 		tableName,
-		columnName,
 	)
 	err := d.ScanRow(row, column)
-	return column.Count > 0, column.DataType, err
+	return column.Count > 0, err
 }
 
 // Get All Columns
@@ -256,11 +237,57 @@ func (d *DB) CreateTable(tableName string, table interface{}) error {
 
 // Alter Table
 func (d *DB) AlterTable(tableName string, table interface{}) error {
-	// columns, err := d.GetColumns(tableName)
-	// if err != nil {
-	// 	return err
-	// }
+	columns, err := d.GetColumns(tableName)
+	if err != nil {
+		return err
+	}
+	columnMap := make(map[string]*DBColumn)
+	for _, v := range *columns {
+		columnMap[v.ColumnName] = v
+	}
+	target := reflect.ValueOf(table)
+	if target.Kind() == reflect.Ptr {
+		target = target.Elem()
+	}
+	if target.Kind() != reflect.Struct {
+		panic("table obj must be struct")
+	}
+	prevCol := ""
+	for i := 0; i < target.NumField(); i++ {
+		value := target.Type().Field(i)
+		rnsql, ok := value.Tag.Lookup("rnsql")
+		if !ok {
+			continue
+		}
+		col, ok := columnMap[rnsql]
+		if !ok {
+			if err := d.AddColumn(tableName, rnsql, prevCol); err != nil {
+				return err
+			}
+		} else {
 
+		}
+		prevCol = rnsql
+	}
+
+	return nil
+}
+
+// Add Column to Table
+func (d *DB) AddColumn(tableName string, columnName, prevCol string) error {
+	sql := NewSql().
+		Alter().Table(tableName).
+		Add().Column(columnName)
+	if prevCol != "" {
+		sql.After(prevCol)
+	} else {
+		sql.First()
+	}
+	if res, err := d.Exec(context.Background(), sql); err != nil {
+		return err
+	} else if _, err := res.RowsAffected(); err != nil {
+		return err
+	}
 	return nil
 }
 

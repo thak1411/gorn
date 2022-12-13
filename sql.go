@@ -49,11 +49,10 @@ func (s *Sql) Create(tableName string, table interface{}) *Sql {
 			} else {
 				panic("rntype not found")
 			}
-			options := []string{"NN", "UQ", "BIN", "UN", "ZF", "AI"}
-			optionName := []string{"NOT NULL", "UNIQUE", "BINARY", "UNSIGNED", "ZEROFILL", "AUTO_INCREMENT"}
-			for j, option := range options {
+
+			for j, option := range DBColumnOptions {
 				if _, ok := target.Type().Field(i).Tag.Lookup(option); ok {
-					s.query += optionName[j] + " "
+					s.query += DBColumnOptionName[j] + " "
 				}
 			}
 			s.query += ", "
@@ -81,6 +80,11 @@ func (s *Sql) Create(tableName string, table interface{}) *Sql {
 }
 
 func (s *Sql) Insert(tableName string, table interface{}) *Sql {
+	s.InsertWithParams(tableName, table)
+	return s
+}
+
+func (s *Sql) InsertWithParams(tableName string, table interface{}) (*Sql, []interface{}) {
 	target := reflect.ValueOf(table)
 	if target.Kind() == reflect.Ptr {
 		target = target.Elem()
@@ -88,25 +92,80 @@ func (s *Sql) Insert(tableName string, table interface{}) *Sql {
 	if target.Kind() != reflect.Struct {
 		panic("table must be struct")
 	}
-	valueCount := 0
+	params := make([]interface{}, 0)
 	s.query += "INSERT INTO " + tableName + " ("
 	for i := 0; i < target.NumField(); i++ {
 		rnsql, ok := target.Type().Field(i).Tag.Lookup("rnsql")
 		if ok {
 			if _, ok := target.Type().Field(i).Tag.Lookup("AI"); !ok {
 				s.query += rnsql + ", "
-				valueCount += 1
+				params = append(params, target.Field(i).Interface())
 			}
 		}
 	}
-	if valueCount > 0 {
+	if len(params) > 0 {
 		s.query = s.query[:len(s.query)-2]
 	}
-	s.query += ") VALUES (" + strings.Repeat("?, ", valueCount)
-	if valueCount > 0 {
+	s.query += ") VALUES (" + strings.Repeat("?, ", len(params))
+	if len(params) > 0 {
 		s.query = s.query[:len(s.query)-2]
 	}
 	s.query += ") "
+	return s, params
+}
+
+func (s *Sql) Delete(tableName string) *Sql {
+	s.query += "DELETE FROM " + tableName + " "
+	return s
+}
+
+func (s *Sql) Update(tableName string, table interface{}) *Sql {
+	s.UpdateWithParams(tableName, table)
+	return s
+}
+
+func (s *Sql) UpdateWithParams(tableName string, table interface{}) (*Sql, []interface{}) {
+	target := reflect.ValueOf(table)
+	if target.Kind() == reflect.Ptr {
+		target = target.Elem()
+	}
+	if target.Kind() != reflect.Struct {
+		panic("table must be struct")
+	}
+	s.query += "UPDATE " + tableName + " SET "
+	params := make([]interface{}, 0)
+	for i := 0; i < target.NumField(); i++ {
+		rnsql, ok := target.Type().Field(i).Tag.Lookup("rnsql")
+		if ok {
+			s.query += rnsql + " = ?, "
+			params = append(params, target.Field(i).Interface())
+		}
+	}
+	s.query = s.query[:len(s.query)-2] + " "
+	return s, params
+}
+
+func (s *Sql) CreateIndex(tableName, indexName string, indexColumns []string, isUnique, increase bool) *Sql {
+	if isUnique {
+		s.query += "CREATE UNIQUE INDEX "
+	} else {
+		s.query += "CREATE INDEX "
+	}
+	s.query += indexName + " ON " + tableName + " ("
+	for _, indexColumn := range indexColumns {
+		s.query += indexColumn + ", "
+	}
+	s.query = s.query[:len(s.query)-2]
+	if increase {
+		s.query += " ASC) "
+	} else {
+		s.query += " DESC) "
+	}
+	return s
+}
+
+func (s *Sql) Set(set string) *Sql {
+	s.query += "SET " + set + " "
 	return s
 }
 
@@ -117,6 +176,26 @@ func (s *Sql) From(table string) *Sql {
 
 func (s *Sql) As(alias string) *Sql {
 	s.query += "AS " + alias + " "
+	return s
+}
+
+func (s *Sql) Join(table string) *Sql {
+	s.query += "JOIN " + table + " "
+	return s
+}
+
+func (s *Sql) LeftJoin(table string) *Sql {
+	s.query += "LEFT JOIN " + table + " "
+	return s
+}
+
+func (s *Sql) RightJoin(table string) *Sql {
+	s.query += "RIGHT JOIN " + table + " "
+	return s
+}
+
+func (s *Sql) On(condition string) *Sql {
+	s.query += "ON " + condition + " "
 	return s
 }
 
@@ -145,6 +224,11 @@ func (s *Sql) Limit(limit int) *Sql {
 	return s
 }
 
+func (s *Sql) LimitPage(page, pageSize int64) *Sql {
+	s.query += "LIMIT " + fmt.Sprint(page*pageSize) + ", " + fmt.Sprint(pageSize) + " "
+	return s
+}
+
 func (s *Sql) Offset(offset int) *Sql {
 	s.query += "OFFSET " + fmt.Sprint(offset) + " "
 	return s
@@ -160,8 +244,43 @@ func (s *Sql) Full() *Sql {
 	return s
 }
 
+func (s *Sql) Table(tableName string) *Sql {
+	s.query += "TABLE `" + tableName + "` "
+	return s
+}
+
 func (s *Sql) Tables() *Sql {
 	s.query += "TABLES "
+	return s
+}
+
+func (s *Sql) Alter() *Sql {
+	s.query += "ALTER "
+	return s
+}
+
+func (s *Sql) Add() *Sql {
+	s.query += "ADD "
+	return s
+}
+
+func (s *Sql) Column(column string) *Sql {
+	s.query += "COLUMN " + column + " "
+	return s
+}
+
+func (s *Sql) After(column string) *Sql {
+	s.query += "AFTER `" + column + "` "
+	return s
+}
+
+func (s *Sql) First() *Sql {
+	s.query += "FIRST "
+	return s
+}
+
+func (s *Sql) Drop() *Sql {
+	s.query += "DROP "
 	return s
 }
 

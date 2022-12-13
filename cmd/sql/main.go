@@ -17,6 +17,11 @@ type Admin struct {
 	UserId int64 `rnsql:"user_id" rntype:"INT" FK:"user" FK_REF:"id" PK:"" NN:""`
 }
 
+type TestTable struct {
+	Col  int64  `rnsql:"col" rntype:"INT" PK:"" NN:"" UQ:"" UN:"" AI:""`
+	CCol string `rnsql:"c_col" rntype:"VARCHAR(20)" NN:"" BIN:""`
+}
+
 func main() {
 	db := gorn.NewDB("mysql")
 	err := db.Open(&gorn.DBConfig{
@@ -31,6 +36,17 @@ func main() {
 	})
 	if err != nil {
 		panic(err)
+	}
+
+	if err := db.Migration("test_table", TestTable{}); err != nil {
+		panic(err)
+	}
+	columns, err := db.GetColumns("test_table")
+	if err != nil {
+		panic(err)
+	}
+	for _, v := range *columns {
+		fmt.Println(v)
 	}
 
 	if err := db.Migration("user", User{
@@ -83,4 +99,12 @@ func main() {
 		panic(err)
 	}
 	fmt.Println(user)
+
+	columns, err = db.GetColumns("user")
+	if err != nil {
+		panic(err)
+	}
+	for _, v := range *columns {
+		fmt.Println(v)
+	}
 }

@@ -44,6 +44,14 @@ func (h *DBHandler) Close() error {
 }
 
 type DBColumn struct {
-	ColumnName string `gsql:"COLUMN_NAME"`
-	ColumnType string `gsql:"DATA_TYPE"`
+	TableName       string `rnsql:"TABLE_NAME"`
+	OrdinalPosition int    `rnsql:"ORDINAL_POSITION"`
+	ColumnName      string `rnsql:"COLUMN_NAME"`
+	ColumnType      string `rnsql:"COLUMN_TYPE"`
+	IsNullable      string `rnsql:"IS_NULLABLE"`
+	ColumnKey       string `rnsql:"COLUMN_KEY"`
+	Extra           string `rnsql:"EXTRA"`
 }
+
+var DBColumnOptions = []string{"BIN", "UN", "NN", "AI"}
+var DBColumnOptionName = []string{"BINARY", "UNSIGNED", "NOT NULL", "AUTO_INCREMENT"}

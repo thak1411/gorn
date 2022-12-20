@@ -9,6 +9,12 @@ import (
 	"strconv"
 )
 
+type GornContext string
+
+const (
+	ContextFinish GornContext = "Finish"
+)
+
 type Context struct {
 	// HTTP Response Writer
 	responseWriter http.ResponseWriter

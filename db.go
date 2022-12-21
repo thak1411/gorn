@@ -646,7 +646,7 @@ func (d *DB) AlterTable(tableName string, table interface{}) error {
 			foreignKeys = append(foreignKeys, &DBForeignKey{
 				TableName:            tableName,
 				OrdinalPosition:      len(foreignKeys) + 1,
-				ConstraintName:       MakeForeignKeyName(tableName, len(foreignKeys)+1),
+				ConstraintName:       MakeForeignKeyName(tableName, len(foreignKeys)),
 				ColumnName:           rnsql,
 				ReferencedTableName:  spt[0],
 				ReferencedColumnName: spt[1],
@@ -827,6 +827,18 @@ func (d *DB) DropForeignKey(tableName, foreignKey string) error {
 	} else if _, err := res.RowsAffected(); err != nil {
 		return err
 	}
+	// if ok, err := d.HasIndex(tableName, foreignKey); err != nil {
+	// 	return err
+	// } else if ok {
+	// 	if err := d.DropIndex(
+	// 		&DBIndex{
+	// 			TableName: tableName,
+	// 			IndexName: foreignKey,
+	// 		},
+	// 	); err != nil {
+	// 		return err
+	// 	}
+	// }
 	return nil
 }
 

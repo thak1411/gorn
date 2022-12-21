@@ -18,7 +18,7 @@ type Admin struct {
 }
 
 type TestTable struct {
-	Col  int64         `rnsql:"col" rntype:"INT" rnopt:"PK NN UQ UN AI"`
+	Col  int64         `rnsql:"col" rntype:"INT" rnopt:"NN UQ UN"`
 	CCol string        `rnsql:"c_col" rntype:"VARCHAR(22)" rnopt:"NN BIN"`
 	Abc  int           `rnsql:"abc" rntype:"INT" rnopt:"NN"`
 	Def  int           `rnsql:"def" rntype:"INT" rnopt:"NN"`
@@ -49,7 +49,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	for _, v := range *columns {
+	for _, v := range columns {
 		fmt.Println(v)
 	}
 
@@ -87,7 +87,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	for _, v := range *idx {
+	for _, v := range idx {
 		fmt.Println(v)
 		for _, w := range v.Columns {
 			fmt.Println(w)

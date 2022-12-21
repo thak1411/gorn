@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -41,15 +42,14 @@ var DBColumnOptionName = []string{"BINARY", "UNSIGNED", "NOT NULL", "AUTO_INCREM
 var DBColumnOptionsWithoutAI = []string{"BIN", "UN", "NN"}
 var DBColumnOptionNameWithoutAI = []string{"BINARY", "UNSIGNED", "NOT NULL"}
 
-type DBConfig struct {
-	User      string
-	Password  string
-	Host      string
-	Port      int
-	Schema    string
-	PoolSize  int
-	MaxConn   int
-	Lifecycle time.Duration
+type DBForeignKey struct {
+	TableName            string `rnsql:"k.TABLE_NAME"`
+	OrdinalPosition      int    `rnsql:"k.ORDINAL_POSITION"`
+	ConstraintName       string `rnsql:"k.CONSTRAINT_NAME"`
+	ReferencedTableName  string `rnsql:"k.REFERENCED_TABLE_NAME"`
+	ReferencedColumnName string `rnsql:"k.REFERENCED_COLUMN_NAME"`
+	UpdateRule           string `rnsql:"r.UPDATE_RULE"`
+	DeleteRule           string `rnsql:"r.DELETE_RULE"`
 }
 
 const (
@@ -68,6 +68,17 @@ type DBIndex struct {
 	IndexName string
 	IndexType string
 	Columns   []*DBIndexColumn
+}
+
+type DBConfig struct {
+	User      string
+	Password  string
+	Host      string
+	Port      int
+	Schema    string
+	PoolSize  int
+	MaxConn   int
+	Lifecycle time.Duration
 }
 
 type DB struct {
@@ -332,8 +343,8 @@ func (d *DB) HasIndex(tableName, indexName string) (bool, error) {
 }
 
 // Get All Columns
-func (d *DB) GetColumns(tableName string) (*[]*DBColumn, error) {
-	columns := &[]*DBColumn{}
+func (d *DB) GetColumns(tableName string) ([]*DBColumn, error) {
+	columns := []*DBColumn{}
 	sql := NewSql().
 		Select(&DBColumn{}).
 		From("INFORMATION_SCHEMA.COLUMNS").
@@ -345,14 +356,37 @@ func (d *DB) GetColumns(tableName string) (*[]*DBColumn, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := d.ScanRows(rows, columns); err != nil {
+	if err := d.ScanRows(rows, &columns); err != nil {
 		return nil, err
 	}
 	return columns, nil
 }
 
+// Get All Foreign Keys
+func (d *DB) GetForeignKeys(tableName string) ([]*DBForeignKey, error) {
+	foreignKeys := []*DBForeignKey{}
+	sql := NewSql().
+		Select(&DBForeignKey{}).
+		From("INFORMATION_SCHEMA.KEY_COLUMN_USAGE").As("k").
+		InnerJoin("INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS").As("r").
+		On("k.CONSTRAINT_NAME = r.CONSTRAINT_NAME").
+		Where("k.TABLE_SCHEMA LIKE ?", d.conf.Schema).
+		And("k.TABLE_NAME LIKE ?", tableName).
+		And("k.REFERENCED_TABLE_NAME IS NOT NULL").
+		OrderBy("k.ORDINAL_POSITION").ASC()
+
+	rows, err := d.Query(context.Background(), sql)
+	if err != nil {
+		return nil, err
+	}
+	if err := d.ScanRows(rows, &foreignKeys); err != nil {
+		return nil, err
+	}
+	return foreignKeys, nil
+}
+
 // Get All Indexes
-func (d *DB) GetIndexes() (*[]*DBIndex, error) {
+func (d *DB) GetIndexes() ([]*DBIndex, error) {
 	result := []*DBIndex{}
 	type Indexes struct {
 		TableName   string        `rnsql:"TABLE_NAME"`
@@ -363,7 +397,7 @@ func (d *DB) GetIndexes() (*[]*DBIndex, error) {
 		Collation   string        `rnsql:"COLLATION"`
 		SubPart     sql.NullInt64 `rnsql:"SUB_PART"`
 	}
-	indexes := &[]*Indexes{}
+	indexes := []*Indexes{}
 	sql := NewSql().
 		Select(&Indexes{}).
 		From("INFORMATION_SCHEMA.STATISTICS").
@@ -376,11 +410,11 @@ func (d *DB) GetIndexes() (*[]*DBIndex, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := d.ScanRows(rows, indexes); err != nil {
+	if err := d.ScanRows(rows, &indexes); err != nil {
 		return nil, err
 	}
 	prevIndexName := "__gorn_trash_value__!&#*#&"
-	for _, index := range *indexes {
+	for _, index := range indexes {
 		// Append New Index
 		if index.IndexName != prevIndexName {
 			indexType := DBIndexTypeUnique
@@ -412,7 +446,7 @@ func (d *DB) GetIndexes() (*[]*DBIndex, error) {
 			},
 		)
 	}
-	return &result, nil
+	return result, nil
 }
 
 // Migration Table
@@ -442,7 +476,7 @@ func (d *DB) MigrationIndex(indexes []*DBIndex) error {
 	oldIndexMap := make(map[string]map[string]*DBIndex)
 	indexMap := make(map[string]map[string]bool)
 	// Make Old Index Map
-	for _, index := range *oldIndexes {
+	for _, index := range oldIndexes {
 		if _, ok := oldIndexMap[index.TableName]; !ok {
 			oldIndexMap[index.TableName] = make(map[string]*DBIndex)
 		}
@@ -450,6 +484,10 @@ func (d *DB) MigrationIndex(indexes []*DBIndex) error {
 	}
 
 	for _, index := range indexes {
+		if _, ok := indexMap[index.TableName]; !ok {
+			indexMap[index.TableName] = make(map[string]bool)
+		}
+		indexMap[index.TableName][index.IndexName] = true
 		// Make Index
 		if has, err := d.HasIndex(index.TableName, index.IndexName); err != nil {
 			return err
@@ -466,13 +504,9 @@ func (d *DB) MigrationIndex(indexes []*DBIndex) error {
 		if err := d.CreateIndex(index); err != nil {
 			return err
 		}
-		if _, ok := indexMap[index.TableName]; !ok {
-			indexMap[index.TableName] = make(map[string]bool)
-		}
-		indexMap[index.TableName][index.IndexName] = true
 	}
 	// Drop Index
-	for _, oldIndex := range *oldIndexes {
+	for _, oldIndex := range oldIndexes {
 		dropFlag := false
 		if _, ok := indexMap[oldIndex.TableName]; !ok {
 			dropFlag = true
@@ -560,11 +594,21 @@ func (d *DB) AlterTable(tableName string, table interface{}) error {
 	// Make Column Map
 	columnMap := make(map[string]*DBColumn)
 	oldPkeys := make([]string, 0)
-	for _, v := range *columns {
+	for _, v := range columns {
 		columnMap[v.ColumnName] = v
 		if v.ColumnKey == "PRI" {
 			oldPkeys = append(oldPkeys, v.ColumnName)
 		}
+	}
+	// Get Foreign Keys
+	oldForeignKeys, err := d.GetForeignKeys(tableName)
+	if err != nil {
+		return err
+	}
+	// Make Foreign Key Map
+	oldForeignKeyMap := make(map[string]*DBForeignKey)
+	for _, v := range oldForeignKeys {
+		oldForeignKeyMap[v.ConstraintName] = v
 	}
 	target := reflect.ValueOf(table)
 	if target.Kind() == reflect.Ptr {
@@ -576,6 +620,7 @@ func (d *DB) AlterTable(tableName string, table interface{}) error {
 	prevCol := ""
 	pkeys := make([]string, 0)
 	modifyValue := make([]string, 0)
+	foreignKeys := make([]*DBForeignKey, 0)
 	for i := 0; i < target.NumField(); i++ {
 		value := target.Type().Field(i)
 		rnsql, ok := value.Tag.Lookup("rnsql")
@@ -591,6 +636,22 @@ func (d *DB) AlterTable(tableName string, table interface{}) error {
 			rnopt = ""
 		}
 		_, ok = columnMap[rnsql]
+		// Append Foreign Key List
+		if fk, ok := value.Tag.Lookup("FK"); ok {
+			spt := strings.Split(fk, ".")
+			if len(spt) != 2 {
+				panic("FK format error")
+			}
+			foreignKeys = append(foreignKeys, &DBForeignKey{
+				TableName:            tableName,
+				OrdinalPosition:      len(foreignKeys) + 1,
+				ConstraintName:       MakeForeignKeyName(tableName, len(foreignKeys)+1),
+				ReferencedTableName:  spt[0],
+				ReferencedColumnName: spt[1],
+				UpdateRule:           "NO ACTION", //TODO: Add UpdateRule Option
+				DeleteRule:           "NO ACTION", //TODO: Add DeleteRule Option
+			})
+		}
 
 		// (Add | Modify) Column Without Auto Increase Option
 
@@ -633,8 +694,27 @@ func (d *DB) AlterTable(tableName string, table interface{}) error {
 				return err
 			}
 		}
-		if err := d.AddPrimaryKey(tableName, pkeys); err != nil {
-			return err
+		if len(pkeys) > 0 {
+			if err := d.AddPrimaryKey(tableName, pkeys); err != nil {
+				return err
+			}
+		}
+	}
+	// If Foreign Key Changed Then Change Foreign Key
+	for _, foreignKey := range foreignKeys {
+		if oldForeignKey, ok := oldForeignKeyMap[foreignKey.ConstraintName]; ok {
+			if !reflect.DeepEqual(oldForeignKey, foreignKey) {
+				if err := d.DropForeignKey(tableName, foreignKey.ConstraintName); err != nil {
+					return err
+				}
+				if err := d.AddForeignKey(tableName, foreignKey); err != nil {
+					return err
+				}
+			}
+		} else {
+			if err := d.AddForeignKey(tableName, foreignKey); err != nil {
+				return err
+			}
 		}
 	}
 	// Add AI Option
@@ -727,6 +807,32 @@ func (d *DB) AddPrimaryKey(tableName string, columns []string) error {
 	sql := NewSql().
 		Alter().Table(tableName).
 		AddPrimaryKey(columns)
+	if res, err := d.Exec(context.Background(), sql); err != nil {
+		return err
+	} else if _, err := res.RowsAffected(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Drop Foreign Key
+func (d *DB) DropForeignKey(tableName, foreignKey string) error {
+	sql := NewSql().
+		Alter().Table(tableName).
+		DropForeignKey(foreignKey)
+	if res, err := d.Exec(context.Background(), sql); err != nil {
+		return err
+	} else if _, err := res.RowsAffected(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Add Foreign Key
+func (d *DB) AddForeignKey(tableName string, foreignKey *DBForeignKey) error {
+	sql := NewSql().
+		Alter().Table(tableName).
+		AddForeignKey(foreignKey)
 	if res, err := d.Exec(context.Background(), sql); err != nil {
 		return err
 	} else if _, err := res.RowsAffected(); err != nil {

@@ -67,6 +67,13 @@ func ParseOptions(options string, withAI bool) (string, bool) {
 	return result, hasPkey
 }
 
+// Make Foreign Key Name
+// Example:
+// "GORN_FK_`tableName`_`number`"
+func MakeForeignKeyName(tableName string, number int) string {
+	return fmt.Sprintf("GORN_FK_%s_%d", tableName, number)
+}
+
 // Add Create Table Clause
 //
 // Create Table from struct
@@ -122,10 +129,15 @@ func (s *Sql) CreateTable(tableName string, table interface{}) *Sql {
 		s.query += "PRIMARY KEY (" + strings.Join(primaryKey, ", ") + "), "
 	}
 	for i := 0; i < len(foreignKey); i += 3 {
-		s.query += fmt.Sprintf("CONSTRAINT `GORN_FK_%s_%d` ", tableName, i/3) +
+		s.query += "CONSTRAINT " + MakeForeignKeyName(tableName, i/3) +
 			fmt.Sprintf("FOREIGN KEY (%s) ", foreignKey[i]) +
-			fmt.Sprintf("REFERENCES %s (%s) ", foreignKey[i+1], foreignKey[i+2]) +
-			"ON DELETE NO ACTION ON UPDATE NO ACTION, "
+			fmt.Sprintf("REFERENCES %s (%s) ", foreignKey[i+1], foreignKey[i+2])
+			// if withCasCadeFK {
+		if 0 == 1 { //TODO: add update & delete rule
+			s.query += "ON DELETE CASCADE ON UPDATE CASCADE, "
+		} else {
+			s.query += "ON DELETE NO ACTION ON UPDATE NO ACTION, "
+		}
 	}
 	s.query = s.query[:len(s.query)-2] + " ) ENGINE = InnoDB;"
 	return s
@@ -504,6 +516,14 @@ func (s *Sql) DropPrimaryKey() *Sql {
 	return s
 }
 
+// Add Drop Foreign Key Clause
+// Example:
+// "DROP FOREIGN KEY `key` "
+func (s *Sql) DropForeignKey(key string) *Sql {
+	s.query += "DROP FOREIGN KEY `" + key + "` "
+	return s
+}
+
 // Add Add Primary Key Clause
 // Example:
 // "ADD PRIMARY KEY (`column1`, `column2`) "
@@ -513,6 +533,13 @@ func (s *Sql) AddPrimaryKey(columns []string) *Sql {
 		s.query += column + ", "
 	}
 	s.query = s.query[:len(s.query)-2] + ") "
+	return s
+}
+
+// Add Add Foreign Key Clause
+// Example:
+// "ADD CONSTRAINT `constraintName` FOREIGN KEY (`column1`, `column2`) REFERENCES `tableName` (`column1`, `column2`) "
+func (s *Sql) AddForeignKey(foreignKey *DBForeignKey) *Sql {
 	return s
 }
 

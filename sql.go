@@ -129,7 +129,7 @@ func (s *Sql) CreateTable(tableName string, table interface{}) *Sql {
 		s.query += "PRIMARY KEY (" + strings.Join(primaryKey, ", ") + "), "
 	}
 	for i := 0; i < len(foreignKey); i += 3 {
-		s.query += "CONSTRAINT " + MakeForeignKeyName(tableName, i/3) +
+		s.query += "CONSTRAINT " + MakeForeignKeyName(tableName, i/3) + " " +
 			fmt.Sprintf("FOREIGN KEY (%s) ", foreignKey[i]) +
 			fmt.Sprintf("REFERENCES %s (%s) ", foreignKey[i+1], foreignKey[i+2])
 			// if withCasCadeFK {
@@ -538,8 +538,12 @@ func (s *Sql) AddPrimaryKey(columns []string) *Sql {
 
 // Add Add Foreign Key Clause
 // Example:
-// "ADD CONSTRAINT `constraintName` FOREIGN KEY (`column1`, `column2`) REFERENCES `tableName` (`column1`, `column2`) "
+// "ADD CONSTRAINT `constraintName` FOREIGN KEY (`columnName`) REFERENCES `referencedColumnName` (`re`) "
 func (s *Sql) AddForeignKey(foreignKey *DBForeignKey) *Sql {
+	s.query += "ADD CONSTRAINT `" + foreignKey.ConstraintName +
+		"` FOREIGN KEY (`" + foreignKey.ColumnName + "`) REFERENCES `" +
+		foreignKey.ReferencedTableName + "` (`" + foreignKey.ReferencedColumnName + "`) "
+
 	return s
 }
 

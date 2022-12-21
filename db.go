@@ -46,6 +46,7 @@ type DBForeignKey struct {
 	TableName            string `rnsql:"k.TABLE_NAME"`
 	OrdinalPosition      int    `rnsql:"k.ORDINAL_POSITION"`
 	ConstraintName       string `rnsql:"k.CONSTRAINT_NAME"`
+	ColumnName           string `rnsql:"k.COLUMN_NAME"`
 	ReferencedTableName  string `rnsql:"k.REFERENCED_TABLE_NAME"`
 	ReferencedColumnName string `rnsql:"k.REFERENCED_COLUMN_NAME"`
 	UpdateRule           string `rnsql:"r.UPDATE_RULE"`
@@ -646,6 +647,7 @@ func (d *DB) AlterTable(tableName string, table interface{}) error {
 				TableName:            tableName,
 				OrdinalPosition:      len(foreignKeys) + 1,
 				ConstraintName:       MakeForeignKeyName(tableName, len(foreignKeys)+1),
+				ColumnName:           rnsql,
 				ReferencedTableName:  spt[0],
 				ReferencedColumnName: spt[1],
 				UpdateRule:           "NO ACTION", //TODO: Add UpdateRule Option

@@ -705,6 +705,7 @@ func (d *DB) AlterTable(tableName string, table interface{}) error {
 	// If Foreign Key Changed Then Change Foreign Key
 	for _, foreignKey := range foreignKeys {
 		if oldForeignKey, ok := oldForeignKeyMap[foreignKey.ConstraintName]; ok {
+			oldForeignKeyMap[foreignKey.ConstraintName] = nil
 			if !reflect.DeepEqual(oldForeignKey, foreignKey) {
 				if err := d.DropForeignKey(tableName, foreignKey.ConstraintName); err != nil {
 					return err
@@ -717,6 +718,15 @@ func (d *DB) AlterTable(tableName string, table interface{}) error {
 			if err := d.AddForeignKey(tableName, foreignKey); err != nil {
 				return err
 			}
+		}
+	}
+	// Drop Old Foreign Key
+	for _, foreignKey := range oldForeignKeyMap {
+		if foreignKey == nil {
+			continue
+		}
+		if err := d.DropForeignKey(tableName, foreignKey.ConstraintName); err != nil {
+			return err
 		}
 	}
 	// Add AI Option

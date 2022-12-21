@@ -122,7 +122,7 @@ func (s *Sql) CreateTable(tableName string, table interface{}) *Sql {
 		s.query += "PRIMARY KEY (" + strings.Join(primaryKey, ", ") + "), "
 	}
 	for i := 0; i < len(foreignKey); i += 3 {
-		s.query += fmt.Sprintf("CONSTRAINT `RN_FK_%s_%d` ", tableName, i/3) +
+		s.query += fmt.Sprintf("CONSTRAINT `GORN_FK_%s_%d` ", tableName, i/3) +
 			fmt.Sprintf("FOREIGN KEY (%s) ", foreignKey[i]) +
 			fmt.Sprintf("REFERENCES %s (%s) ", foreignKey[i+1], foreignKey[i+2]) +
 			"ON DELETE NO ACTION ON UPDATE NO ACTION, "

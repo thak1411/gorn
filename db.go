@@ -368,6 +368,7 @@ func (d *DB) GetIndexes() (*[]*DBIndex, error) {
 		From("INFORMATION_SCHEMA.STATISTICS").
 		Where("TABLE_SCHEMA LIKE ?", d.conf.Schema).
 		And("INDEX_NAME NOT LIKE ?", "PRIMARY").
+		And("INDEX_NAME NOT LIKE ?", "GORN_FK_%"). // GORN_FK_... is Default Foreign Key Index
 		OrderBy("TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX")
 
 	rows, err := d.Query(context.Background(), sql)

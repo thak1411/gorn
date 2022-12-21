@@ -288,6 +288,14 @@ func (s *Sql) Join(table string) *Sql {
 	return s
 }
 
+// Add Inner Join Clause
+// Example:
+// "INNER JOIN `table` "
+func (s *Sql) InnerJoin(table string) *Sql {
+	s.query += "INNER JOIN " + table + " "
+	return s
+}
+
 // Add Left Join Clause
 // Example:
 // "LEFT JOIN `table` "
@@ -345,6 +353,22 @@ func (s *Sql) Or(condition string, params ...interface{}) *Sql {
 // "ORDER BY `order` "
 func (s *Sql) OrderBy(order string) *Sql {
 	s.query += "ORDER BY " + order + " "
+	return s
+}
+
+// Add ASC Clause
+// Example:
+// "ASC "
+func (s *Sql) ASC() *Sql {
+	s.query += "ASC "
+	return s
+}
+
+// Add DESC Clause
+// Example:
+// "DESC "
+func (s *Sql) DESC() *Sql {
+	s.query += "DESC "
 	return s
 }
 

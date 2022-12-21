@@ -178,10 +178,24 @@ func (d *DB) Prepare(ctx context.Context, sql *Sql) (*sql.Stmt, error) {
 }
 
 // Insert Row
-func (d *DB) Insert(ctx context.Context, tableName string, table interface{}) (int64, error) {
+func (d *DB) Insert(ctx context.Context, tableName string, table interface{}) error {
 	sql := NewSql().Insert(tableName, table)
 	result, err := d.Exec(ctx, sql)
 	if err != nil {
+		return err
+	}
+	_, err = result.RowsAffected()
+	return err
+}
+
+// Insert Row & Return Last Insert Id
+func (d *DB) InsertWithLastId(ctx context.Context, tableName string, table interface{}) (int64, error) {
+	sql := NewSql().Insert(tableName, table)
+	result, err := d.Exec(ctx, sql)
+	if err != nil {
+		return 0, err
+	}
+	if _, err = result.RowsAffected(); err != nil {
 		return 0, err
 	}
 	return result.LastInsertId()

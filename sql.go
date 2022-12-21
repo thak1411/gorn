@@ -552,12 +552,25 @@ func (s *Sql) Drop() *Sql {
 	return s
 }
 
+// Add Comma Clause
+// Example:
+// ", "
+func (s *Sql) Comma() *Sql {
+	s.query += ", "
+	return s
+}
+
 // Add Plain Query String
 // Example:
 // "`query` "
 func (s *Sql) AddPlainQuery(query string) *Sql {
 	s.query += query + " "
 	return s
+}
+
+// Return Plain Query
+func (s *Sql) PlainQuery() string {
+	return s.query
 }
 
 // Return Query With Semicolon

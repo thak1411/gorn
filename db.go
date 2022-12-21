@@ -338,7 +338,8 @@ func (d *DB) GetColumns(tableName string) (*[]*DBColumn, error) {
 		Select(&DBColumn{}).
 		From("INFORMATION_SCHEMA.COLUMNS").
 		Where("TABLE_SCHEMA LIKE ?", d.conf.Schema).
-		And("TABLE_NAME LIKE ?", tableName)
+		And("TABLE_NAME LIKE ?", tableName).
+		OrderBy("ORDINAL_POSITION").ASC()
 
 	rows, err := d.Query(context.Background(), sql)
 	if err != nil {

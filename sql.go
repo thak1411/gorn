@@ -471,7 +471,11 @@ func (s *Sql) AddColumn(column, columnType, columnOptions string) *Sql {
 // Example:
 // "ADD INDEX `index` (column1(sub_part) ASC, column2 DESC, ...) "
 func (s *Sql) AddIndex(indexName string, columnNames []string, columnSubParts []sql.NullInt64, columnOrders []string, isUnique bool) *Sql {
-	s.query += "ADD INDEX `" + indexName + "` ("
+	if isUnique {
+		s.query += "ADD UNIQUE INDEX `" + indexName + "` ("
+	} else {
+		s.query += "ADD INDEX `" + indexName + "` ("
+	}
 	for i, column := range columnNames {
 		s.query += "`" + column + "` "
 		if columnSubParts[i].Valid {

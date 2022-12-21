@@ -371,6 +371,7 @@ func (d *DB) GetForeignKeys(tableName string) ([]*DBForeignKey, error) {
 		From("INFORMATION_SCHEMA.KEY_COLUMN_USAGE").As("k").
 		InnerJoin("INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS").As("r").
 		On("k.CONSTRAINT_NAME = r.CONSTRAINT_NAME").
+		And("k.CONSTRAINT_SCHEMA = r.CONSTRAINT_SCHEMA").
 		Where("k.TABLE_SCHEMA LIKE ?", d.conf.Schema).
 		And("k.TABLE_NAME LIKE ?", tableName).
 		And("k.REFERENCED_TABLE_NAME IS NOT NULL").

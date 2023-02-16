@@ -138,6 +138,17 @@ func (c *Context) GetParamInt64(key string, defaultValue int64) int64 {
 	return i
 }
 
+// Get Params Bool Value From key
+// If Key Not Found, Return default Value
+func (c *Context) GetParamBool(key string, defaultValue bool) bool {
+	str := c.request.URL.Query().Get(key)
+	b, err := strconv.ParseBool(str)
+	if err != nil {
+		return defaultValue
+	}
+	return b
+}
+
 //================================================================================
 // COOKIES
 //================================================================================

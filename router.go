@@ -236,14 +236,14 @@ func (r *Router) prepare() {
 				if !r.checkOrigin(c.GetHeader("Origin")) {
 					return
 				}
-				if !r.checkMethod(c.GetHeader("Access-Control-Request-Methods")) {
+				if !r.checkMethod(c.GetHeader("Access-Control-Request-Method")) {
 					return
 				}
 				headers := parseHeaderList(c.GetHeader("Access-Control-Request-Headers"))
 				if !r.checkHeader(headers) {
 					return
 				}
-				c.SetHeader("Access-Control-Allow-Methods", c.GetHeader("Access-Control-Request-Methods"))
+				c.SetHeader("Access-Control-Allow-Methods", c.GetHeader("Access-Control-Request-Method"))
 				if len(headers) > 0 {
 					c.SetHeader("Access-Control-Allow-Headers", strings.Join(headers, ","))
 				}

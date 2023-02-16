@@ -126,7 +126,7 @@ func (r *Router) checkOrigin(origin string) bool {
 // check is allowed method
 func (r *Router) checkMethod(method string) bool {
 	if len(r.options.AllowedMethods) == 0 {
-		return false
+		return true
 	}
 	method = strings.ToUpper(method)
 	if method == http.MethodOptions {

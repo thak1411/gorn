@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/signal"
 	"path"
+	"strconv"
+	"strings"
 )
 
 type Router struct {
@@ -15,6 +17,16 @@ type Router struct {
 	postHandler   map[string][]func(c *Context)
 	putHandler    map[string][]func(c *Context)
 	deleteHandler map[string][]func(c *Context)
+	options       *RouterOptions
+}
+
+type RouterOptions struct {
+	AllowedOrigins      []string
+	AllowedMethods      []string
+	AllowedHeaders      []string
+	MaxAge              int
+	AllowCredentials    bool
+	AllowPrivateNetwork bool
 }
 
 // copy handler
@@ -76,6 +88,128 @@ func (r *Router) Delete(path string, handler ...func(c *Context)) {
 	r.deleteHandler[path] = handler
 }
 
+// preparing options
+func prepareOptions(options *RouterOptions) *RouterOptions {
+	if options == nil {
+		options = &RouterOptions{}
+	}
+	if len(options.AllowedOrigins) == 0 {
+		options.AllowedOrigins = []string{"*"}
+	}
+	if len(options.AllowedMethods) == 0 {
+		options.AllowedMethods = []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodOptions}
+	}
+	return options
+}
+
+// Set Router Options
+func (r *Router) SetOptions(options *RouterOptions) {
+	r.options = prepareOptions(options)
+}
+
+// check is allowed origin
+func (r *Router) checkOrigin(origin string) bool {
+	if len(r.options.AllowedOrigins) == 0 {
+		return true
+	}
+	if r.options.AllowedOrigins[0] == "*" {
+		return true
+	}
+	for _, o := range r.options.AllowedOrigins {
+		if o == origin {
+			return true
+		}
+	}
+	return false
+}
+
+// check is allowed method
+func (r *Router) checkMethod(method string) bool {
+	if len(r.options.AllowedMethods) == 0 {
+		return false
+	}
+	method = strings.ToUpper(method)
+	if method == http.MethodOptions {
+		return true
+	}
+	for _, m := range r.options.AllowedMethods {
+		if m == method {
+			return true
+		}
+	}
+	return false
+}
+
+// check is allowed header
+func (r *Router) checkHeader(headers []string) bool {
+	if len(r.options.AllowedHeaders) == 0 {
+		return true
+	}
+	if r.options.AllowedHeaders[0] == "*" {
+		return true
+	}
+	for _, header := range headers {
+		header = http.CanonicalHeaderKey(header)
+		flag := false
+		for _, h := range r.options.AllowedHeaders {
+			if h == header {
+				flag = true
+				break
+			}
+		}
+		if !flag {
+			return false
+		}
+	}
+	return true
+}
+
+// parsing header list
+func parseHeaderList(headerList string) []string {
+	n := len(headerList)
+	h := make([]byte, 0, n)
+	toLower := byte('a' - 'A')
+	upper := true
+	t := 0
+	for i := 0; i < n; i++ {
+		if headerList[i] == ',' {
+			t++
+		}
+	}
+	headers := make([]string, 0, t)
+	for i := 0; i < n; i++ {
+		b := headerList[i]
+		switch {
+		case b >= 'a' && b <= 'z':
+			if upper {
+				h = append(h, b-toLower)
+			} else {
+				h = append(h, b)
+			}
+		case b >= 'A' && b <= 'Z':
+			if !upper {
+				h = append(h, b+toLower)
+			} else {
+				h = append(h, b)
+			}
+		case b == '-' || b == '_' || b == '.' || (b >= '0' && b <= '9'):
+			h = append(h, b)
+		}
+
+		if b == ' ' || b == ',' || i == n-1 {
+			if len(h) > 0 {
+				// Flush the found header
+				headers = append(headers, string(h))
+				h = h[:0]
+				upper = true
+			}
+		} else {
+			upper = b == '-' || b == '_'
+		}
+	}
+	return headers
+}
+
 // Preparing Router
 func (r *Router) prepare() {
 	for p := range r.handler {
@@ -89,29 +223,65 @@ func (r *Router) prepare() {
 				request:        req,
 				ctx:            req.Context(),
 			}
-			var handler []func(c *Context)
-			var ok bool
-			switch req.Method {
-			case http.MethodGet:
-				handler, ok = getHandler, hasGetHandler
-			case http.MethodPost:
-				handler, ok = postHandler, hasPostHandler
-			case http.MethodPut:
-				handler, ok = putHandler, hasPutHandler
-			case http.MethodDelete:
-				handler, ok = deleteHandler, hasDeleteHandler
-			default:
-				ok = false
-			}
-			if !ok {
-				c.SendMethodNotAllowed()
-				return
-			}
-			for _, h := range handler {
-				if c.IsContextFinish() {
-					break
+			if req.Method == http.MethodOptions && c.GetHeader("Access-Control-Request-Method") != "" {
+				origin := c.GetHeader("Origin")
+
+				// CORS OPTION METHODS
+				c.AddHeader("Vary", "Origin")
+				c.AddHeader("Vary", "Access-Control-Request-Method")
+				c.AddHeader("Vary", "Access-Control-Request-Headers")
+				if r.options.AllowPrivateNetwork {
+					c.AddHeader("Vary", "Access-Control-Request-Private-Network")
 				}
-				h(c)
+				if !r.checkOrigin(c.GetHeader("Origin")) {
+					return
+				}
+				if !r.checkMethod(c.GetHeader("Access-Control-Request-Methods")) {
+					return
+				}
+				headers := parseHeaderList(c.GetHeader("Access-Control-Request-Headers"))
+				if !r.checkHeader(headers) {
+					return
+				}
+				c.SetHeader("Access-Control-Allow-Methods", c.GetHeader("Access-Control-Request-Methods"))
+				if len(headers) > 0 {
+					c.SetHeader("Access-Control-Allow-Headers", strings.Join(headers, ","))
+				}
+				c.SetHeader("Access-Control-Allow-Origin", origin)
+				if r.options.AllowCredentials {
+					c.SetHeader("Access-Control-Allow-Credentials", "true")
+				}
+				if r.options.AllowPrivateNetwork && c.GetHeader("Access-Control-Request-Private-Network") == "true" {
+					c.SetHeader("Access-Control-Allow-Private-Network", "true")
+				}
+				if r.options.MaxAge > 0 {
+					c.SetHeader("Access-Control-Max-Age", strconv.Itoa(r.options.MaxAge))
+				}
+			} else {
+				var handler []func(c *Context)
+				var ok bool
+				switch req.Method {
+				case http.MethodGet:
+					handler, ok = getHandler, hasGetHandler
+				case http.MethodPost:
+					handler, ok = postHandler, hasPostHandler
+				case http.MethodPut:
+					handler, ok = putHandler, hasPutHandler
+				case http.MethodDelete:
+					handler, ok = deleteHandler, hasDeleteHandler
+				default:
+					ok = false
+				}
+				if !ok {
+					c.SendMethodNotAllowed()
+					return
+				}
+				for _, h := range handler {
+					if c.IsContextFinish() {
+						break
+					}
+					h(c)
+				}
 			}
 		})
 	}
@@ -140,6 +310,7 @@ func (r *Router) Run(port int) error {
 
 // Generate a Gorn Router
 func NewRouter() *Router {
+	options := &RouterOptions{}
 	return &Router{
 		mux:           http.NewServeMux(),
 		handler:       make(map[string]bool),
@@ -147,5 +318,6 @@ func NewRouter() *Router {
 		postHandler:   make(map[string][]func(c *Context)),
 		putHandler:    make(map[string][]func(c *Context)),
 		deleteHandler: make(map[string][]func(c *Context)),
+		options:       prepareOptions(options),
 	}
 }

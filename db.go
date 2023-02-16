@@ -80,6 +80,7 @@ type DBConfig struct {
 	PoolSize  int
 	MaxConn   int
 	Lifecycle time.Duration
+	MaxRetry  int
 }
 
 type DB struct {
@@ -124,13 +125,16 @@ func (d *DB) BeginTx(ctx context.Context) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	newConf := new(DBConfig)
+	*newConf = *d.conf
+	newConf.MaxRetry = 0
 	newHandler := &DB{
 		&DBHandler{
 			DB:        d.h.DB,
 			Container: tx,
 		},
 		d.Engine,
-		d.conf,
+		newConf,
 	}
 	return newHandler, nil
 }
@@ -159,7 +163,12 @@ func (d *DB) ExecTx(ctx context.Context, fn func(txdb *DB) error) error {
 	if err != nil {
 		return err
 	}
-	err = fn(newHandler)
+	for i := 0; i <= d.conf.MaxRetry; i++ {
+		err = fn(newHandler)
+		if err == nil {
+			return newHandler.CommitTx()
+		}
+	}
 	if err != nil {
 		if rbErr := newHandler.RollbackTx(); rbErr != nil {
 			return rbErr
@@ -170,23 +179,39 @@ func (d *DB) ExecTx(ctx context.Context, fn func(txdb *DB) error) error {
 }
 
 // Execute SQL
-func (d *DB) Exec(ctx context.Context, sql *Sql) (sql.Result, error) {
-	return d.h.Container.ExecContext(ctx, sql.Query(), sql.Params()...)
+func (d *DB) Exec(ctx context.Context, tsql *Sql) (sql.Result, error) {
+	var res sql.Result
+	var err error
+	for i := 0; i <= d.conf.MaxRetry; i++ {
+		res, err = d.h.Container.ExecContext(ctx, tsql.Query(), tsql.Params()...)
+		if err == nil {
+			return res, nil
+		}
+	}
+	return res, err
 }
 
 // Execute SQL & Get Multiple Rows
-func (d *DB) Query(ctx context.Context, sql *Sql) (*sql.Rows, error) {
-	return d.h.Container.QueryContext(ctx, sql.Query(), sql.Params()...)
+func (d *DB) Query(ctx context.Context, tsql *Sql) (*sql.Rows, error) {
+	var res *sql.Rows
+	var err error
+	for i := 0; i <= d.conf.MaxRetry; i++ {
+		res, err = d.h.Container.QueryContext(ctx, tsql.Query(), tsql.Params()...)
+		if err == nil {
+			return res, nil
+		}
+	}
+	return res, err
 }
 
 // Execute SQL & Get Single Row
-func (d *DB) QueryRow(ctx context.Context, sql *Sql) *sql.Row {
-	return d.h.Container.QueryRowContext(ctx, sql.Query(), sql.Params()...)
+func (d *DB) QueryRow(ctx context.Context, tsql *Sql) *sql.Row {
+	return d.h.Container.QueryRowContext(ctx, tsql.Query(), tsql.Params()...)
 }
 
 // Prepare SQL
-func (d *DB) Prepare(ctx context.Context, sql *Sql) (*sql.Stmt, error) {
-	return d.h.Container.PrepareContext(ctx, sql.Query())
+func (d *DB) Prepare(ctx context.Context, tsql *Sql) (*sql.Stmt, error) {
+	return d.h.Container.PrepareContext(ctx, tsql.Query())
 }
 
 // Insert Row

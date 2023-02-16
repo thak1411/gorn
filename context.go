@@ -138,6 +138,17 @@ func (c *Context) GetParamInt64(key string, defaultValue int64) int64 {
 	return i
 }
 
+// Get Params Bool Value From key
+// If Key Not Found, Return default Value
+func (c *Context) GetParamBool(key string, defaultValue bool) bool {
+	str := c.request.URL.Query().Get(key)
+	b, err := strconv.ParseBool(str)
+	if err != nil {
+		return defaultValue
+	}
+	return b
+}
+
 //================================================================================
 // COOKIES
 //================================================================================
@@ -150,6 +161,25 @@ func (c *Context) SetCookie(cookie *http.Cookie) {
 // Get Browser Cookie
 func (c *Context) GetCookie(sessionName string) (*http.Cookie, error) {
 	return c.request.Cookie(sessionName)
+}
+
+//================================================================================
+// HEADERS
+//================================================================================
+
+// Get Header
+func (c *Context) GetHeader(key string) string {
+	return c.request.Header.Get(key)
+}
+
+// Set Header
+func (c *Context) SetHeader(key, value string) {
+	c.responseWriter.Header().Set(key, value)
+}
+
+// Add Header
+func (c *Context) AddHeader(key, value string) {
+	c.responseWriter.Header().Add(key, value)
 }
 
 //================================================================================
@@ -189,6 +219,12 @@ func (c *Context) Assert(condition bool, message string) error {
 // If Assertion is Failed, Send Bad Request (400) & Return Error
 func (c *Context) AssertIntRange(i int, min, max int) error {
 	return c.Assert(i >= min && i <= max, "integer is not valid")
+}
+
+// Assert From 64Bit Integer Close Range
+// If Assertion is Failed, Send Bad Request (400) & Return Error
+func (c *Context) AssertInt64Range(i int64, min, max int64) error {
+	return c.Assert(i >= min && i <= max, "64Bit integer is not valid")
 }
 
 // Assert From String Length Closed Range

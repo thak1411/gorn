@@ -6,6 +6,7 @@ func main() {
 	router := gorn.NewRouter()
 	router2 := gorn.NewRouter()
 	router3 := gorn.NewRouter()
+	// router.
 	router.Get("/", func(c *gorn.Context) { // {URL}/
 		c.SendPlainText(200, "Hello World")
 	})

@@ -224,40 +224,9 @@ func (r *Router) prepare() {
 				ctx:            req.Context(),
 			}
 			if req.Method == http.MethodOptions && c.GetHeader("Access-Control-Request-Method") != "" {
-				origin := c.GetHeader("Origin")
-
-				// CORS OPTION METHODS
-				c.AddHeader("Vary", "Origin")
-				c.AddHeader("Vary", "Access-Control-Request-Method")
-				c.AddHeader("Vary", "Access-Control-Request-Headers")
-				if r.options.AllowPrivateNetwork {
-					c.AddHeader("Vary", "Access-Control-Request-Private-Network")
-				}
-				if !r.checkOrigin(c.GetHeader("Origin")) {
-					return
-				}
-				if !r.checkMethod(c.GetHeader("Access-Control-Request-Method")) {
-					return
-				}
-				headers := parseHeaderList(c.GetHeader("Access-Control-Request-Headers"))
-				if !r.checkHeader(headers) {
-					return
-				}
-				c.SetHeader("Access-Control-Allow-Methods", c.GetHeader("Access-Control-Request-Method"))
-				if len(headers) > 0 {
-					c.SetHeader("Access-Control-Allow-Headers", strings.Join(headers, ","))
-				}
-				c.SetHeader("Access-Control-Allow-Origin", origin)
-				if r.options.AllowCredentials {
-					c.SetHeader("Access-Control-Allow-Credentials", "true")
-				}
-				if r.options.AllowPrivateNetwork && c.GetHeader("Access-Control-Request-Private-Network") == "true" {
-					c.SetHeader("Access-Control-Allow-Private-Network", "true")
-				}
-				if r.options.MaxAge > 0 {
-					c.SetHeader("Access-Control-Max-Age", strconv.Itoa(r.options.MaxAge))
-				}
+				r.preFlight(c)
 			} else {
+				r.actualRequest(c)
 				var handler []func(c *Context)
 				var ok bool
 				switch req.Method {
@@ -284,6 +253,64 @@ func (r *Router) prepare() {
 				}
 			}
 		})
+	}
+}
+
+// pre-flight CORS requests
+func (r *Router) preFlight(c *Context) {
+	origin := c.GetHeader("Origin")
+
+	// CORS OPTION METHODS
+	c.AddHeader("Vary", "Origin")
+	c.AddHeader("Vary", "Access-Control-Request-Method")
+	c.AddHeader("Vary", "Access-Control-Request-Headers")
+	if r.options.AllowPrivateNetwork {
+		c.AddHeader("Vary", "Access-Control-Request-Private-Network")
+	}
+	if !r.checkOrigin(c.GetHeader("Origin")) {
+		c.SetContextFinish()
+		return
+	}
+	if !r.checkMethod(c.GetHeader("Access-Control-Request-Method")) {
+		c.SetContextFinish()
+		return
+	}
+	headers := parseHeaderList(c.GetHeader("Access-Control-Request-Headers"))
+	if !r.checkHeader(headers) {
+		c.SetContextFinish()
+		return
+	}
+	c.SetHeader("Access-Control-Allow-Methods", c.GetHeader("Access-Control-Request-Method"))
+	if len(headers) > 0 {
+		c.SetHeader("Access-Control-Allow-Headers", strings.Join(headers, ","))
+	}
+	c.SetHeader("Access-Control-Allow-Origin", origin)
+	if r.options.AllowCredentials {
+		c.SetHeader("Access-Control-Allow-Credentials", "true")
+	}
+	if r.options.AllowPrivateNetwork && c.GetHeader("Access-Control-Request-Private-Network") == "true" {
+		c.SetHeader("Access-Control-Allow-Private-Network", "true")
+	}
+	if r.options.MaxAge > 0 {
+		c.SetHeader("Access-Control-Max-Age", strconv.Itoa(r.options.MaxAge))
+	}
+	c.responseWriter.WriteHeader(http.StatusNoContent)
+}
+
+// handle cors rquests
+func (r *Router) actualRequest(c *Context) {
+	origin := c.GetHeader("Origin")
+
+	c.AddHeader("Vary", "Origin")
+	if !r.checkOrigin(origin) {
+		return
+	}
+	if !r.checkMethod(c.request.Method) {
+		return
+	}
+	c.SetHeader("Access-Control-Allow-Origin", origin)
+	if r.options.AllowCredentials {
+		c.SetHeader("Access-Control-Allow-Credentials", "true")
 	}
 }
 

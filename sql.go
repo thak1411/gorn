@@ -368,6 +368,23 @@ func (s *Sql) OrderBy(order string) *Sql {
 	return s
 }
 
+// Add Group By Clause
+// Example:
+// "GROUP BY `group` "
+func (s *Sql) GroupBy(group string) *Sql {
+	s.query += "GROUP BY " + group + " "
+	return s
+}
+
+// Add Having Clause & Params
+// Example:
+// "HAVING `condition` "
+func (s *Sql) Having(condition string, params ...interface{}) *Sql {
+	s.query += "HAVING " + condition + " "
+	s.params = append(s.params, params...)
+	return s
+}
+
 // Add ASC Clause
 // Example:
 // "ASC "
@@ -598,8 +615,15 @@ func (s *Sql) Comma() *Sql {
 // Add Plain Query String
 // Example:
 // "`query` "
-func (s *Sql) AddPlainQuery(query string) *Sql {
+func (s *Sql) AddPlainQuery(query string, params ...interface{}) *Sql {
 	s.query += query + " "
+	s.params = append(s.params, params...)
+	return s
+}
+
+// Add Params
+func (s *Sql) AddParams(params ...interface{}) *Sql {
+	s.params = append(s.params, params...)
 	return s
 }
 

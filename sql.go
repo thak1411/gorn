@@ -34,6 +34,28 @@ func (s *Sql) Select(table interface{}) *Sql {
 	return s
 }
 
+// Add Distinct Select Clause
+// Example:
+// "SELECT DISTINCT table.a, table.b, table.c, table.d ... "
+func (s *Sql) DistinctSelect(table interface{}) *Sql {
+	target := reflect.ValueOf(table)
+	if target.Kind() == reflect.Ptr {
+		target = target.Elem()
+	}
+	if target.Kind() != reflect.Struct {
+		panic("table must be struct")
+	}
+	s.query += "SELECT DISTINCT "
+	for i := 0; i < target.NumField(); i++ {
+		rnsql, ok := target.Type().Field(i).Tag.Lookup("rnsql")
+		if ok {
+			s.query += rnsql + ", "
+		}
+	}
+	s.query = s.query[:len(s.query)-2] + " "
+	return s
+}
+
 func stringToWordMap(str string) map[string]bool {
 	result := make(map[string]bool)
 	for _, v := range strings.Fields(str) {

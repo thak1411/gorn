@@ -182,6 +182,11 @@ func (c *Context) AddHeader(key, value string) {
 	c.responseWriter.Header().Add(key, value)
 }
 
+// Get Host
+func (c *Context) GetHost() string {
+	return c.request.Host
+}
+
 //================================================================================
 // CONTEXT
 //================================================================================

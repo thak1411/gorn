@@ -30,6 +30,11 @@ type Context struct {
 // HTTP RESPONSE
 //================================================================================
 
+// Get Response Writer
+func (c *Context) GetResponseWriter() http.ResponseWriter {
+	return c.responseWriter
+}
+
 // Flagging Context is Finished
 func (c *Context) SetContextFinish() {
 	c.ctx = context.WithValue(c.ctx, ContextFinish, true)
@@ -81,6 +86,20 @@ func (c *Context) SendPlainText(status int, text string) {
 	c.responseWriter.Write([]byte(text))
 }
 
+// Send HTML
+func (c *Context) SendHTML(status int, html string) {
+	c.SetContextFinish()
+	c.responseWriter.Header().Set("Content-Type", "text/html")
+	c.responseWriter.WriteHeader(status)
+	c.responseWriter.Write([]byte(html))
+}
+
+// Send File
+func (c *Context) SendFile(status int, filename string) {
+	c.SetContextFinish()
+	http.ServeFile(c.responseWriter, c.request, filename)
+}
+
 // Send Json Template
 func (c *Context) SendJson(status int, v interface{}) {
 	c.SetContextFinish()
@@ -94,6 +113,11 @@ func (c *Context) SendJson(status int, v interface{}) {
 //================================================================================
 // BODY & PARAMS BINDING
 //================================================================================
+
+// Get Request Object
+func (c *Context) GetRequest() *http.Request {
+	return c.request
+}
 
 // Binding Body to Json Object
 // If Body Can't Decode to Json Object, Send Bad Request (400) & Return Error

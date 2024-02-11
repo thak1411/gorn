@@ -241,17 +241,20 @@ func (r *Router) prepare() {
 				r.actualRequest(c)
 				var handler []func(c *Context)
 				var ok bool
-				switch req.Method {
-				case http.MethodGet:
-					handler, ok = getHandler, hasGetHandler
-				case http.MethodPost:
-					handler, ok = postHandler, hasPostHandler
-				case http.MethodPut:
-					handler, ok = putHandler, hasPutHandler
-				case http.MethodDelete:
-					handler, ok = deleteHandler, hasDeleteHandler
-				default:
-					handler, ok = anyHandler, hasAnyHandler
+				handler, ok = anyHandler, hasAnyHandler
+				if !ok {
+					switch req.Method {
+					case http.MethodGet:
+						handler, ok = getHandler, hasGetHandler
+					case http.MethodPost:
+						handler, ok = postHandler, hasPostHandler
+					case http.MethodPut:
+						handler, ok = putHandler, hasPutHandler
+					case http.MethodDelete:
+						handler, ok = deleteHandler, hasDeleteHandler
+					default:
+						ok = false
+					}
 				}
 				if !ok {
 					c.SendMethodNotAllowed()

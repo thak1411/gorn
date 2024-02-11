@@ -258,7 +258,7 @@ func (r *Router) prepare() {
 
 // pre-flight CORS requests
 func (r *Router) preFlight(c *Context) {
-	origin := c.GetHeader("Origin")
+	// origin := c.GetHeader("Origin")
 
 	// CORS OPTION METHODS
 	c.AddHeader("Vary", "Origin")

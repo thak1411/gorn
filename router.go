@@ -284,7 +284,8 @@ func (r *Router) preFlight(c *Context) {
 	if len(headers) > 0 {
 		c.SetHeader("Access-Control-Allow-Headers", strings.Join(headers, ","))
 	}
-	c.SetHeader("Access-Control-Allow-Origin", origin)
+	// c.SetHeader("Access-Control-Allow-Origin", origin)
+	c.SetHeader("Access-Control-Allow-Origin", "*")
 	if r.options.AllowCredentials {
 		c.SetHeader("Access-Control-Allow-Credentials", "true")
 	}

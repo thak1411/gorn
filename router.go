@@ -17,6 +17,7 @@ type Router struct {
 	postHandler   map[string][]func(c *Context)
 	putHandler    map[string][]func(c *Context)
 	deleteHandler map[string][]func(c *Context)
+	anyHandler    map[string][]func(c *Context)
 	options       *RouterOptions
 }
 
@@ -50,6 +51,7 @@ func (r *Router) Extends(prefix string, router *Router) {
 	copyHandler(prefix, r.handler, r.postHandler, router.postHandler)
 	copyHandler(prefix, r.handler, r.putHandler, router.putHandler)
 	copyHandler(prefix, r.handler, r.deleteHandler, router.deleteHandler)
+	copyHandler(prefix, r.handler, r.anyHandler, router.anyHandler)
 }
 
 // Regist Get Function to Router
@@ -86,6 +88,15 @@ func (r *Router) Delete(path string, handler ...func(c *Context)) {
 	}
 	r.handler[path] = true
 	r.deleteHandler[path] = handler
+}
+
+// Regist Any Function to Router
+func (r *Router) Any(path string, handler ...func(c *Context)) {
+	if len(handler) < 1 {
+		return
+	}
+	r.handler[path] = true
+	r.anyHandler[path] = handler
 }
 
 // preparing options
@@ -217,6 +228,7 @@ func (r *Router) prepare() {
 		postHandler, hasPostHandler := r.postHandler[p]
 		putHandler, hasPutHandler := r.putHandler[p]
 		deleteHandler, hasDeleteHandler := r.deleteHandler[p]
+		anyHandler, hasAnyHandler := r.anyHandler[p]
 		r.mux.HandleFunc(p, func(w http.ResponseWriter, req *http.Request) {
 			c := &Context{
 				responseWriter: w,
@@ -239,7 +251,7 @@ func (r *Router) prepare() {
 				case http.MethodDelete:
 					handler, ok = deleteHandler, hasDeleteHandler
 				default:
-					ok = false
+					handler, ok = anyHandler, hasAnyHandler
 				}
 				if !ok {
 					c.SendMethodNotAllowed()
@@ -346,6 +358,7 @@ func NewRouter() *Router {
 		postHandler:   make(map[string][]func(c *Context)),
 		putHandler:    make(map[string][]func(c *Context)),
 		deleteHandler: make(map[string][]func(c *Context)),
+		anyHandler:    make(map[string][]func(c *Context)),
 		options:       prepareOptions(options),
 	}
 }

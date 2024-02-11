@@ -270,7 +270,7 @@ func (r *Router) prepare() {
 
 // pre-flight CORS requests
 func (r *Router) preFlight(c *Context) {
-	// origin := c.GetHeader("Origin")
+	origin := c.GetHeader("Origin")
 
 	// CORS OPTION METHODS
 	c.AddHeader("Vary", "Origin")
@@ -296,8 +296,7 @@ func (r *Router) preFlight(c *Context) {
 	if len(headers) > 0 {
 		c.SetHeader("Access-Control-Allow-Headers", strings.Join(headers, ","))
 	}
-	// c.SetHeader("Access-Control-Allow-Origin", origin)
-	c.SetHeader("Access-Control-Allow-Origin", "*")
+	c.SetHeader("Access-Control-Allow-Origin", origin)
 	if r.options.AllowCredentials {
 		c.SetHeader("Access-Control-Allow-Credentials", "true")
 	}

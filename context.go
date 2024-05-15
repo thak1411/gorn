@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"unicode/utf8"
 )
 
 type GornContext string
@@ -260,6 +261,13 @@ func (c *Context) AssertInt64Range(i int64, min, max int64) error {
 // If Assertion is Failed, Send Bad Request (400) & Return Error
 func (c *Context) AssertStrLen(str string, min, max int) error {
 	return c.Assert(len(str) >= min && len(str) <= max, "string length is not valid")
+}
+
+// Assert From UTF-8 String Length Closed Range
+// If Assertion is Failed, Send Bad Request (400) & Return Error
+func (c *Context) AssertUTF8Len(str string, min, max int) error {
+	utf8len := utf8.RuneCountInString(str)
+	return c.Assert(utf8len >= min && utf8len <= max, "UTF-8 string length is not valid")
 }
 
 // Assert From String Regex

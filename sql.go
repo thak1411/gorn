@@ -8,14 +8,16 @@ import (
 )
 
 type Sql struct {
-	query  string
-	params []interface{}
+	isSelect bool
+	query    string
+	params   []interface{}
 }
 
 // Add Select Clause
 // Example:
 // "SELECT table.a, table.b, table.c, table.d ... "
 func (s *Sql) Select(table interface{}) *Sql {
+	s.isSelect = true
 	target := reflect.ValueOf(table)
 	if target.Kind() == reflect.Ptr {
 		target = target.Elem()
@@ -38,6 +40,7 @@ func (s *Sql) Select(table interface{}) *Sql {
 // Example:
 // "SELECT DISTINCT table.a, table.b, table.c, table.d ... "
 func (s *Sql) DistinctSelect(table interface{}) *Sql {
+	s.isSelect = true
 	target := reflect.ValueOf(table)
 	if target.Kind() == reflect.Ptr {
 		target = target.Elem()
@@ -100,17 +103,20 @@ func MakeForeignKeyName(tableName string, number int) string {
 //
 // Create Table from struct
 // Example:
-// type TestTable struct {
-// 	Id   int64  `rnsql:"id" rntype:"INT" rnopt:"PK NN AI"`
-// 	Name string `rnsql:"name" rntype:"VARCHAR(255)" rnopt:"NN"`
-// }
+//
+//	type TestTable struct {
+//		Id   int64  `rnsql:"id" rntype:"INT" rnopt:"PK NN AI"`
+//		Name string `rnsql:"name" rntype:"VARCHAR(255)" rnopt:"NN"`
+//	}
 //
 // ->
 //
 // Create Table `table_name` (
-// 	`id` INT NOT NULL AUTO_INCREMENT,
-// 	`name` VARCHAR(255) NOT NULL,
-// 	PRIMARY KEY (`id`)
+//
+//	`id` INT NOT NULL AUTO_INCREMENT,
+//	`name` VARCHAR(255) NOT NULL,
+//	PRIMARY KEY (`id`)
+//
 // )
 func (s *Sql) CreateTable(tableName string, table interface{}) *Sql {
 	target := reflect.ValueOf(table)
@@ -167,10 +173,11 @@ func (s *Sql) CreateTable(tableName string, table interface{}) *Sql {
 
 // Add Insert Clause
 // Example:
-// type TestTable struct {
-// 	Id   int64  `rnsql:"id" rntype:"INT" rnopt:"PK NN AI"`
-// 	Name string `rnsql:"name" rntype:"VARCHAR(255)" rnopt:"NN"`
-// }
+//
+//	type TestTable struct {
+//		Id   int64  `rnsql:"id" rntype:"INT" rnopt:"PK NN AI"`
+//		Name string `rnsql:"name" rntype:"VARCHAR(255)" rnopt:"NN"`
+//	}
 //
 // ->
 //
@@ -214,10 +221,11 @@ func (s *Sql) DeleteFrom(tableName string) *Sql {
 
 // Add Update Clause
 // Example:
-// type TestTable struct {
-// 	Id   int64  `rnsql:"id" rntype:"INT" rnopt:"PK NN AI"`
-// 	Name string `rnsql:"name" rntype:"VARCHAR(255)" rnopt:"NN"`
-// }
+//
+//	type TestTable struct {
+//		Id   int64  `rnsql:"id" rntype:"INT" rnopt:"PK NN AI"`
+//		Name string `rnsql:"name" rntype:"VARCHAR(255)" rnopt:"NN"`
+//	}
 //
 // ->
 //
@@ -244,20 +252,21 @@ func (s *Sql) Update(tableName string, table interface{}) *Sql {
 
 // Add Create Index Clause
 // Example:
-// gorn.DBIndex{
-// 	TableName: "table_name",
-// 	IndexName: "index_name",
-//  IndexType: gorn.DBIndexTypeIndex,
-// 	IndexColumns: []*DBIndexColumn{
-//    &DBIndexColumn{
-//      ColumnName: "id",
-//      ASC:        true,
-//    },
-//    &DBIndexColumn{
-//      ColumnName: "name",
-//      ASC:        false,
-//    },
-// }
+//
+//	gorn.DBIndex{
+//		TableName: "table_name",
+//		IndexName: "index_name",
+//	 IndexType: gorn.DBIndexTypeIndex,
+//		IndexColumns: []*DBIndexColumn{
+//	   &DBIndexColumn{
+//	     ColumnName: "id",
+//	     ASC:        true,
+//	   },
+//	   &DBIndexColumn{
+//	     ColumnName: "name",
+//	     ASC:        false,
+//	   },
+//	}
 //
 // ->
 //
@@ -593,7 +602,7 @@ func (s *Sql) AddForeignKey(foreignKey *DBForeignKey) *Sql {
 // Add Default Clause
 // Example:
 // "DEFAULT `defaultValue` "
-//TODO: Fix Default Option
+// TODO: Fix Default Option
 // If defaultValue is string, it must be quoted like `"defaultValue"`
 // If defaultValue is nil, it must be NULL like `NULL`
 // If defaultValue is Integer or Float, it must be unquoted like `123
@@ -655,7 +664,10 @@ func (s *Sql) PlainQuery() string {
 }
 
 // Return Query With Semicolon
-func (s *Sql) Query() string {
+func (s *Sql) Query(withTransaction bool) string {
+	if s.isSelect && withTransaction {
+		return s.query + " FOR UPDATE;"
+	}
 	return s.query + ";"
 }
 
@@ -677,5 +689,5 @@ func (s *Sql) Clear() {
 
 // Generate New Sql
 func NewSql() *Sql {
-	return &Sql{query: "", params: []interface{}{}}
+	return &Sql{isSelect: false, query: "", params: []interface{}{}}
 }

@@ -84,9 +84,10 @@ type DBConfig struct {
 }
 
 type DB struct {
-	h      *DBHandler
-	Engine string
-	conf   *DBConfig
+	h             *DBHandler
+	Engine        string
+	conf          *DBConfig
+	isTransaction bool
 }
 
 // Connect to Database
@@ -135,6 +136,7 @@ func (d *DB) BeginTx(ctx context.Context) (*DB, error) {
 		},
 		d.Engine,
 		newConf,
+		true,
 	}
 	return newHandler, nil
 }
@@ -163,12 +165,7 @@ func (d *DB) ExecTx(ctx context.Context, fn func(txdb *DB) error) error {
 	if err != nil {
 		return err
 	}
-	for i := 0; i <= d.conf.MaxRetry; i++ {
-		err = fn(newHandler)
-		if err == nil {
-			return newHandler.CommitTx()
-		}
-	}
+	err = fn(newHandler)
 	if err != nil {
 		if rbErr := newHandler.RollbackTx(); rbErr != nil {
 			return rbErr
@@ -182,11 +179,9 @@ func (d *DB) ExecTx(ctx context.Context, fn func(txdb *DB) error) error {
 func (d *DB) Exec(ctx context.Context, tsql *Sql) (sql.Result, error) {
 	var res sql.Result
 	var err error
-	for i := 0; i <= d.conf.MaxRetry; i++ {
-		res, err = d.h.Container.ExecContext(ctx, tsql.Query(), tsql.Params()...)
-		if err == nil {
-			return res, nil
-		}
+	res, err = d.h.Container.ExecContext(ctx, tsql.Query(d.isTransaction), tsql.Params()...)
+	if err == nil {
+		return res, nil
 	}
 	return res, err
 }
@@ -195,23 +190,21 @@ func (d *DB) Exec(ctx context.Context, tsql *Sql) (sql.Result, error) {
 func (d *DB) Query(ctx context.Context, tsql *Sql) (*sql.Rows, error) {
 	var res *sql.Rows
 	var err error
-	for i := 0; i <= d.conf.MaxRetry; i++ {
-		res, err = d.h.Container.QueryContext(ctx, tsql.Query(), tsql.Params()...)
-		if err == nil {
-			return res, nil
-		}
+	res, err = d.h.Container.QueryContext(ctx, tsql.Query(d.isTransaction), tsql.Params()...)
+	if err == nil {
+		return res, nil
 	}
 	return res, err
 }
 
 // Execute SQL & Get Single Row
 func (d *DB) QueryRow(ctx context.Context, tsql *Sql) *sql.Row {
-	return d.h.Container.QueryRowContext(ctx, tsql.Query(), tsql.Params()...)
+	return d.h.Container.QueryRowContext(ctx, tsql.Query(d.isTransaction), tsql.Params()...)
 }
 
 // Prepare SQL
 func (d *DB) Prepare(ctx context.Context, tsql *Sql) (*sql.Stmt, error) {
-	return d.h.Container.PrepareContext(ctx, tsql.Query())
+	return d.h.Container.PrepareContext(ctx, tsql.Query(d.isTransaction))
 }
 
 // Insert Row
@@ -898,5 +891,5 @@ func (d *DB) Close() error {
 
 // Generate New DB Instance
 func NewDB(engine string) *DB {
-	return &DB{Engine: engine}
+	return &DB{Engine: engine, isTransaction: false}
 }

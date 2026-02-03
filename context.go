@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -134,17 +136,17 @@ func (c *Context) BindJsonBody(obj interface{}) error {
 // Get Params Value From key
 // If Key Not Found, Return default Value
 func (c *Context) GetParam(key, defaultValue string) string {
-	if c.request.URL.Query().Has(key) {
-		return c.request.URL.Query().Get(key)
-	} else {
-		return defaultValue
+	values := c.queryValues()
+	if values.Has(key) {
+		return values.Get(key)
 	}
+	return defaultValue
 }
 
 // Get Params integer Value From key
 // If Key Not Found, Return default Value
 func (c *Context) GetParamInt(key string, defaultValue int) int {
-	str := c.request.URL.Query().Get(key)
+	str := c.queryValues().Get(key)
 	i, err := strconv.ParseInt(str, 10, 64)
 	if err != nil {
 		return defaultValue
@@ -155,7 +157,7 @@ func (c *Context) GetParamInt(key string, defaultValue int) int {
 // Get Params 64bit integer Value From key
 // If Key Not Found, Return default Value
 func (c *Context) GetParamInt64(key string, defaultValue int64) int64 {
-	str := c.request.URL.Query().Get(key)
+	str := c.queryValues().Get(key)
 	i, err := strconv.ParseInt(str, 10, 64)
 	if err != nil {
 		return defaultValue
@@ -166,12 +168,27 @@ func (c *Context) GetParamInt64(key string, defaultValue int64) int64 {
 // Get Params Bool Value From key
 // If Key Not Found, Return default Value
 func (c *Context) GetParamBool(key string, defaultValue bool) bool {
-	str := c.request.URL.Query().Get(key)
+	str := c.queryValues().Get(key)
 	b, err := strconv.ParseBool(str)
 	if err != nil {
 		return defaultValue
 	}
 	return b
+}
+
+// Parse query params while tolerating semicolons in values.
+// net/url.ParseQuery rejects semicolons, so treat ';' as literal by escaping it.
+func (c *Context) queryValues() url.Values {
+	raw := c.request.URL.RawQuery
+	if raw == "" {
+		return url.Values{}
+	}
+	sanitized := strings.ReplaceAll(raw, ";", "%3B")
+	values, err := url.ParseQuery(sanitized)
+	if err != nil {
+		return url.Values{}
+	}
+	return values
 }
 
 //================================================================================

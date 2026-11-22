@@ -1,13 +1,19 @@
 package gorn
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path"
 	"strconv"
 	"strings"
+	"sync"
+	"syscall"
+	"time"
 )
 
 type Router struct {
@@ -19,15 +25,21 @@ type Router struct {
 	deleteHandler map[string][]func(c *Context)
 	anyHandler    map[string][]func(c *Context)
 	options       *RouterOptions
+	prepareOnce   sync.Once
+	middlewares   []func(http.Handler) http.Handler
+	prepared      http.Handler
 }
 
 type RouterOptions struct {
 	AllowedOrigins      []string
 	AllowedMethods      []string
 	AllowedHeaders      []string
+	ExposedHeaders      []string
 	MaxAge              int
 	AllowCredentials    bool
 	AllowPrivateNetwork bool
+	// ResponseObserver can record application result codes without reading bodies.
+	ResponseObserver func(*Context, int, interface{})
 }
 
 // copy handler
@@ -231,9 +243,10 @@ func (r *Router) prepare() {
 		anyHandler, hasAnyHandler := r.anyHandler[p]
 		r.mux.HandleFunc(p, func(w http.ResponseWriter, req *http.Request) {
 			c := &Context{
-				responseWriter: w,
-				request:        req,
-				ctx:            req.Context(),
+				responseWriter:   w,
+				request:          req,
+				ctx:              req.Context(),
+				responseObserver: r.options.ResponseObserver,
 			}
 			if req.Method == http.MethodOptions && c.GetHeader("Access-Control-Request-Method") != "" {
 				r.preFlight(c)
@@ -324,28 +337,72 @@ func (r *Router) actualRequest(c *Context) {
 		return
 	}
 	c.SetHeader("Access-Control-Allow-Origin", origin)
+	if len(r.options.ExposedHeaders) > 0 {
+		c.SetHeader("Access-Control-Expose-Headers", strings.Join(r.options.ExposedHeaders, ", "))
+	}
 	if r.options.AllowCredentials {
 		c.SetHeader("Access-Control-Allow-Credentials", "true")
 	}
 }
 
-// Running Router
+// Use installs standard net/http middleware, in outermost-first order.
+// Register routes and middleware before first calling Handler or ServeHTTP.
+func (r *Router) Use(middleware ...func(http.Handler) http.Handler) {
+	r.middlewares = append(r.middlewares, middleware...)
+}
+
+// Handler exposes the router for httptest, custom servers, and instrumentation.
+// Middleware surrounds the mux, including its 404, redirect and OPTIONS responses.
+func (r *Router) Handler() http.Handler {
+	r.prepareOnce.Do(func() {
+		r.prepare()
+		r.prepared = r.mux
+		for i := len(r.middlewares) - 1; i >= 0; i-- {
+			r.prepared = r.middlewares[i](r.prepared)
+		}
+	})
+	return r.prepared
+}
+
+func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	r.Handler().ServeHTTP(w, req)
+}
+
+// Run serves until SIGINT or SIGTERM, allowing active requests to finish.
 func (r *Router) Run(port int) error {
-	r.prepare()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return r.RunContext(ctx, port)
+}
 
-	ret := make(chan error, 1)
-	interrupt := make(chan os.Signal, 1)
-	signal.Notify(interrupt, os.Interrupt)
-
-	go func() {
-		err := http.ListenAndServe(fmt.Sprintf(":%d", port), r.mux)
-		ret <- err
-	}()
-
-	select {
-	case err := <-ret:
+func (r *Router) RunContext(ctx context.Context, port int) error {
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
 		return err
-	case <-interrupt:
+	}
+	return r.ServeContext(ctx, listener)
+}
+
+// ServeContext takes ownership of listener. Cancellation stops accepting requests
+// and drains active requests for up to 25 seconds. No write timeout is imposed on
+// streaming responses. Hijacked connections remain the application's responsibility.
+func (r *Router) ServeContext(ctx context.Context, listener net.Listener) error {
+	server := &http.Server{Handler: r.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
+	result := make(chan error, 1)
+	go func() { result <- server.Serve(listener) }()
+	select {
+	case err := <-result:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	case <-ctx.Done():
+		drain, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+		defer cancel()
+		if err := server.Shutdown(drain); err != nil {
+			_ = server.Close()
+			return err
+		}
 		return nil
 	}
 }

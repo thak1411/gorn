@@ -26,7 +26,8 @@ type Context struct {
 	request *http.Request
 
 	// Custom Context Value
-	ctx context.Context
+	ctx              context.Context
+	responseObserver func(*Context, int, interface{})
 }
 
 //================================================================================
@@ -105,6 +106,9 @@ func (c *Context) SendFile(status int, filename string) {
 
 // Send Json Template
 func (c *Context) SendJson(status int, v interface{}) {
+	if c.responseObserver != nil {
+		c.responseObserver(c, status, v)
+	}
 	c.SetContextFinish()
 	c.responseWriter.Header().Set("Content-Type", "application/json")
 	c.responseWriter.WriteHeader(status)

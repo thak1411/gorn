@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"reflect"
-	"strings"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -295,7 +294,7 @@ func (d *DB) ScanRows(rows *sql.Rows, dest interface{}) error {
 			target.Set(reflect.Append(target, item.Elem()))
 		}
 	}
-	return nil
+	return rows.Err()
 }
 
 // Has Table
@@ -307,9 +306,9 @@ func (d *DB) HasTable(tableName string) (bool, error) {
 	sql := NewSql().
 		Select(table).
 		From("INFORMATION_SCHEMA.TABLES").
-		Where("TABLE_SCHEMA LIKE ?", d.conf.Schema).
-		And("TABLE_NAME LIKE ?", tableName).
-		And("TABLE_TYPE LIKE ?", "BASE_TABLE")
+		Where("TABLE_SCHEMA = ?", d.conf.Schema).
+		And("TABLE_NAME = ?", tableName).
+		And("TABLE_TYPE = ?", "BASE TABLE")
 
 	row := d.QueryRow(
 		context.Background(),
@@ -328,9 +327,9 @@ func (d *DB) HasColumn(tableName, columnName string) (bool, error) {
 	sql := NewSql().
 		Select(column).
 		From("INFORMATION_SCHEMA.COLUMNS").
-		Where("TABLE_SCHEMA LIKE ?", d.conf.Schema).
-		And("TABLE_NAME LIKE ?", tableName).
-		And("COLUMN_NAME LIKE ?", columnName)
+		Where("TABLE_SCHEMA = ?", d.conf.Schema).
+		And("TABLE_NAME = ?", tableName).
+		And("COLUMN_NAME = ?", columnName)
 
 	row := d.QueryRow(
 		context.Background(),
@@ -349,9 +348,9 @@ func (d *DB) HasIndex(tableName, indexName string) (bool, error) {
 	sql := NewSql().
 		Select(index).
 		From("INFORMATION_SCHEMA.STATISTICS").
-		Where("TABLE_SCHEMA LIKE ?", d.conf.Schema).
-		And("TABLE_NAME LIKE ?", tableName).
-		And("INDEX_NAME LIKE ?", indexName)
+		Where("TABLE_SCHEMA = ?", d.conf.Schema).
+		And("TABLE_NAME = ?", tableName).
+		And("INDEX_NAME = ?", indexName)
 
 	row := d.QueryRow(
 		context.Background(),
@@ -367,14 +366,15 @@ func (d *DB) GetColumns(tableName string) ([]*DBColumn, error) {
 	sql := NewSql().
 		Select(&DBColumn{}).
 		From("INFORMATION_SCHEMA.COLUMNS").
-		Where("TABLE_SCHEMA LIKE ?", d.conf.Schema).
-		And("TABLE_NAME LIKE ?", tableName).
+		Where("TABLE_SCHEMA = ?", d.conf.Schema).
+		And("TABLE_NAME = ?", tableName).
 		OrderBy("ORDINAL_POSITION").ASC()
 
 	rows, err := d.Query(context.Background(), sql)
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 	if err := d.ScanRows(rows, &columns); err != nil {
 		return nil, err
 	}
@@ -390,156 +390,81 @@ func (d *DB) GetForeignKeys(tableName string) ([]*DBForeignKey, error) {
 		InnerJoin("INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS").As("r").
 		On("k.CONSTRAINT_NAME = r.CONSTRAINT_NAME").
 		And("k.CONSTRAINT_SCHEMA = r.CONSTRAINT_SCHEMA").
-		Where("k.TABLE_SCHEMA LIKE ?", d.conf.Schema).
-		And("k.TABLE_NAME LIKE ?", tableName).
+		And("k.TABLE_NAME = r.TABLE_NAME").
+		Where("k.TABLE_SCHEMA = ?", d.conf.Schema).
+		And("k.TABLE_NAME = ?", tableName).
 		And("k.REFERENCED_TABLE_NAME IS NOT NULL").
-		OrderBy("k.ORDINAL_POSITION").ASC()
+		OrderBy("k.CONSTRAINT_NAME, k.ORDINAL_POSITION").ASC()
 
 	rows, err := d.Query(context.Background(), sql)
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 	if err := d.ScanRows(rows, &foreignKeys); err != nil {
 		return nil, err
 	}
 	return foreignKeys, nil
 }
 
-// Get All Indexes
+// GetIndexes returns ordinary secondary BTREE indexes. Features that DBIndex
+// cannot represent (expressions, visibility, other methods) return an error
+// instead of an incomplete definition that a caller might accidentally drop.
 func (d *DB) GetIndexes() ([]*DBIndex, error) {
-	result := []*DBIndex{}
-	type Indexes struct {
-		TableName   string        `rnsql:"TABLE_NAME"`
-		IndexName   string        `rnsql:"INDEX_NAME"`
-		SeqInIndex  int64         `rnsql:"SEQ_IN_INDEX"`
-		ColumnName  string        `rnsql:"COLUMN_NAME"`
-		IsNotUnique bool          `rnsql:"NON_UNIQUE"`
-		Collation   string        `rnsql:"COLLATION"`
-		SubPart     sql.NullInt64 `rnsql:"SUB_PART"`
+	type indexRow struct {
+		Table      string         `rnsql:"TABLE_NAME"`
+		Name       string         `rnsql:"INDEX_NAME"`
+		Method     string         `rnsql:"INDEX_TYPE"`
+		Visible    string         `rnsql:"IS_VISIBLE"`
+		NonUnique  bool           `rnsql:"NON_UNIQUE"`
+		Column     sql.NullString `rnsql:"COLUMN_NAME"`
+		Expression sql.NullString `rnsql:"EXPRESSION"`
+		Prefix     sql.NullInt64  `rnsql:"SUB_PART"`
+		Collation  sql.NullString `rnsql:"COLLATION"`
 	}
-	indexes := []*Indexes{}
-	sql := NewSql().
-		Select(&Indexes{}).
-		From("INFORMATION_SCHEMA.STATISTICS").
-		Where("TABLE_SCHEMA LIKE ?", d.conf.Schema).
-		And("INDEX_NAME NOT LIKE ?", "PRIMARY").
-		And("INDEX_NAME NOT LIKE ?", "GORN_FK_%"). // GORN_FK_... is Default Foreign Key Index
+	query := NewSql().Select(&indexRow{}).From("INFORMATION_SCHEMA.STATISTICS").
+		Where("TABLE_SCHEMA = ?", d.conf.Schema).
+		And("INDEX_NAME <> ?", "PRIMARY").
+		And("LEFT(INDEX_NAME, 8) <> ?", "GORN_FK_").
 		OrderBy("TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX")
-
-	rows, err := d.Query(context.Background(), sql)
+	rows, err := d.Query(context.Background(), query)
 	if err != nil {
 		return nil, err
 	}
-	if err := d.ScanRows(rows, &indexes); err != nil {
+	defer rows.Close()
+	var raw []*indexRow
+	if err := d.ScanRows(rows, &raw); err != nil {
 		return nil, err
 	}
-	prevIndexName := "__gorn_trash_value__!&#*#&"
-	for _, index := range indexes {
-		// Append New Index
-		if index.IndexName != prevIndexName {
-			indexType := DBIndexTypeUnique
-			if index.IsNotUnique {
-				indexType = DBIndexTypeIndex
-			}
-			result = append(
-				result,
-				&DBIndex{
-					TableName: index.TableName,
-					IndexName: index.IndexName,
-					IndexType: indexType,
-					Columns:   make([]*DBIndexColumn, 0),
-				},
-			)
+	var result []*DBIndex
+	for i := 0; i < len(raw); {
+		first := raw[i]
+		idx := &migrationIndexState{Name: first.Name, Method: first.Method, Invisible: first.Visible == "NO", Unique: !first.NonUnique}
+		for i < len(raw) && raw[i].Table == first.Table && raw[i].Name == first.Name {
+			row := raw[i]
+			idx.Parts = append(idx.Parts, migrationIndexPart{Name: row.Column, Expression: row.Expression, Prefix: row.Prefix, Descending: row.Collation.String == "D"})
+			i++
 		}
-		prevIndexName = index.IndexName
-		// Append Index Column
-		asc := true
-		if index.Collation == "D" {
-			asc = false
+		index, err := publicMigrationIndex(first.Table, idx)
+		if err != nil {
+			return nil, err
 		}
-		result[len(result)-1].Columns = append(
-			result[len(result)-1].Columns,
-			&DBIndexColumn{
-				ColumnName: index.ColumnName,
-				SubPart:    index.SubPart,
-				ASC:        asc,
-			},
-		)
+		result = append(result, index)
 	}
 	return result, nil
 }
 
-// Migration Table
+// Migration applies the conservative migration engine to one table.
+// Use PlanMigration for a dry run or Migrate for multiple related tables.
 func (d *DB) Migration(tableName string, table interface{}) error {
-	// Make Table
-	if has, err := d.HasTable(tableName); err != nil {
-		return err
-	} else if has {
-		if err := d.AlterTable(tableName, table); err != nil {
-			return err
-		}
-	} else {
-		if err := d.CreateTable(tableName, table); err != nil {
-			return err
-		}
-	}
-	return nil
+	_, err := d.Migrate(context.Background(), []MigrationTable{{Name: tableName, Model: table}}, nil)
+	return err
 }
 
-// Migration Index
+// MigrationIndex changes only the supplied indexes; omitted indexes are kept.
 func (d *DB) MigrationIndex(indexes []*DBIndex) error {
-	// Get All Indexes
-	oldIndexes, err := d.GetIndexes()
-	if err != nil {
-		return err
-	}
-	oldIndexMap := make(map[string]map[string]*DBIndex)
-	indexMap := make(map[string]map[string]bool)
-	// Make Old Index Map
-	for _, index := range oldIndexes {
-		if _, ok := oldIndexMap[index.TableName]; !ok {
-			oldIndexMap[index.TableName] = make(map[string]*DBIndex)
-		}
-		oldIndexMap[index.TableName][index.IndexName] = index
-	}
-
-	for _, index := range indexes {
-		if _, ok := indexMap[index.TableName]; !ok {
-			indexMap[index.TableName] = make(map[string]bool)
-		}
-		indexMap[index.TableName][index.IndexName] = true
-		// Make Index
-		if has, err := d.HasIndex(index.TableName, index.IndexName); err != nil {
-			return err
-		} else if has {
-			// If Index Was Not Changed, Then Skip
-			if reflect.DeepEqual(oldIndexMap[index.TableName][index.IndexName], index) {
-				continue
-			}
-			if err := d.DropIndex(index); err != nil {
-				return err
-			}
-		}
-		// If Index Was Created, Then Drop Index & Create Index
-		if err := d.CreateIndex(index); err != nil {
-			return err
-		}
-	}
-	// Drop Index
-	for _, oldIndex := range oldIndexes {
-		dropFlag := false
-		if _, ok := indexMap[oldIndex.TableName]; !ok {
-			dropFlag = true
-		} else if _, ok := indexMap[oldIndex.TableName][oldIndex.IndexName]; !ok {
-			dropFlag = true
-		}
-		if dropFlag {
-			if err := d.DropIndex(oldIndex); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
+	_, err := d.Migrate(context.Background(), nil, indexes)
+	return err
 }
 
 // Create Index
@@ -604,164 +529,10 @@ func (d *DB) DropTable(tableName string) error {
 	return nil
 }
 
-// Alter Table
+// AlterTable uses the same conservative diff as Migration. Column order and
+// unmodeled columns are preserved; dangerous changes require an explicit plan.
 func (d *DB) AlterTable(tableName string, table interface{}) error {
-	// Get Columns
-	columns, err := d.GetColumns(tableName)
-	if err != nil {
-		return err
-	}
-	// Make Column Map
-	columnMap := make(map[string]*DBColumn)
-	oldPkeys := make([]string, 0)
-	for _, v := range columns {
-		columnMap[v.ColumnName] = v
-		if v.ColumnKey == "PRI" {
-			oldPkeys = append(oldPkeys, v.ColumnName)
-		}
-	}
-	// Get Foreign Keys
-	oldForeignKeys, err := d.GetForeignKeys(tableName)
-	if err != nil {
-		return err
-	}
-	// Make Foreign Key Map
-	oldForeignKeyMap := make(map[string]*DBForeignKey)
-	for _, v := range oldForeignKeys {
-		oldForeignKeyMap[v.ConstraintName] = v
-	}
-	target := reflect.ValueOf(table)
-	if target.Kind() == reflect.Ptr {
-		target = target.Elem()
-	}
-	if target.Kind() != reflect.Struct {
-		panic("table obj must be struct")
-	}
-	prevCol := ""
-	pkeys := make([]string, 0)
-	modifyValue := make([]string, 0)
-	foreignKeys := make([]*DBForeignKey, 0)
-	for i := 0; i < target.NumField(); i++ {
-		value := target.Type().Field(i)
-		rnsql, ok := value.Tag.Lookup("rnsql")
-		if !ok {
-			continue
-		}
-		rntype, ok := value.Tag.Lookup("rntype")
-		if !ok {
-			panic("rntype is required")
-		}
-		rnopt, ok := value.Tag.Lookup("rnopt")
-		if !ok {
-			rnopt = ""
-		}
-		_, ok = columnMap[rnsql]
-		// Append Foreign Key List
-		if fk, ok := value.Tag.Lookup("FK"); ok {
-			spt := strings.Split(fk, ".")
-			if len(spt) != 2 {
-				panic("FK format error")
-			}
-			foreignKeys = append(foreignKeys, &DBForeignKey{
-				TableName:            tableName,
-				OrdinalPosition:      len(foreignKeys) + 1,
-				ConstraintName:       MakeForeignKeyName(tableName, len(foreignKeys)),
-				ColumnName:           rnsql,
-				ReferencedTableName:  spt[0],
-				ReferencedColumnName: spt[1],
-				UpdateRule:           "NO ACTION", //TODO: Add UpdateRule Option
-				DeleteRule:           "NO ACTION", //TODO: Add DeleteRule Option
-			})
-		}
-
-		// (Add | Modify) Column Without Auto Increase Option
-
-		// If Column Not Exist Then Add Column
-		if !ok {
-			if hasPkey, err := d.AddColumn(tableName, rnsql, rntype, rnopt, prevCol, target.Field(i).Interface(), false); err != nil {
-				return err
-			} else if hasPkey {
-				pkeys = append(pkeys, rnsql)
-			}
-		}
-		// Add Column Have Default Value Options
-		// So, We Have to Change It to The Original Options
-
-		// If Change Primary Key And Column Has AI Option Then
-		// Remove AI Option And Change Primary Key First
-		// Then Add AI Option To Column
-		modifyValue = append(modifyValue, tableName, rnsql, rntype, rnopt, prevCol)
-		if hasPkey, err := d.ModifyColumn(tableName, rnsql, rntype, rnopt, prevCol, false); err != nil {
-			return err
-		} else if hasPkey {
-			pkeys = append(pkeys, rnsql)
-		}
-		columnMap[rnsql] = nil
-		prevCol = rnsql
-	}
-	// Remove Old Column
-	for k, v := range columnMap {
-		if v == nil {
-			continue
-		}
-		if err := d.DropColumn(tableName, k); err != nil {
-			return err
-		}
-	}
-	// If Primary Key Changed Then Change Primary Key
-	if !reflect.DeepEqual(oldPkeys, pkeys) {
-		if len(oldPkeys) > 0 {
-			if err := d.DropPrimaryKey(tableName); err != nil {
-				return err
-			}
-		}
-		if len(pkeys) > 0 {
-			if err := d.AddPrimaryKey(tableName, pkeys); err != nil {
-				return err
-			}
-		}
-	}
-	// If Foreign Key Changed Then Change Foreign Key
-	for _, foreignKey := range foreignKeys {
-		if oldForeignKey, ok := oldForeignKeyMap[foreignKey.ConstraintName]; ok {
-			oldForeignKeyMap[foreignKey.ConstraintName] = nil
-			if !reflect.DeepEqual(oldForeignKey, foreignKey) {
-				if err := d.DropForeignKey(tableName, foreignKey.ConstraintName); err != nil {
-					return err
-				}
-				if err := d.AddForeignKey(tableName, foreignKey); err != nil {
-					return err
-				}
-			}
-		} else {
-			if err := d.AddForeignKey(tableName, foreignKey); err != nil {
-				return err
-			}
-		}
-	}
-	// Drop Old Foreign Key
-	for _, foreignKey := range oldForeignKeyMap {
-		if foreignKey == nil {
-			continue
-		}
-		if err := d.DropForeignKey(tableName, foreignKey.ConstraintName); err != nil {
-			return err
-		}
-	}
-	// Add AI Option
-	for i := 0; i < len(modifyValue); i += 5 {
-		if _, err := d.ModifyColumn(
-			modifyValue[i],
-			modifyValue[i+1],
-			modifyValue[i+2],
-			modifyValue[i+3],
-			modifyValue[i+4],
-			true,
-		); err != nil {
-			return err
-		}
-	}
-	return nil
+	return d.Migration(tableName, table)
 }
 
 // Add Column to Table With Default Value
@@ -856,18 +627,7 @@ func (d *DB) DropForeignKey(tableName, foreignKey string) error {
 	} else if _, err := res.RowsAffected(); err != nil {
 		return err
 	}
-	if ok, err := d.HasIndex(tableName, foreignKey); err != nil {
-		return err
-	} else if ok {
-		if err := d.DropIndex(
-			&DBIndex{
-				TableName: tableName,
-				IndexName: foreignKey,
-			},
-		); err != nil {
-			return err
-		}
-	}
+
 	return nil
 }
 

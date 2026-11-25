@@ -71,11 +71,11 @@ func NewLogger(w io.Writer, service, environment, version string) *slog.Logger {
 }
 
 func Configure(service string) *slog.Logger {
-	environment := os.Getenv("PPS_ECOSYSTEM_ENV")
+	environment := os.Getenv("GORN_ENV")
 	if environment == "" {
 		environment = "local"
 	}
-	version := os.Getenv("PPS_VERSION")
+	version := os.Getenv("GORN_VERSION")
 	if version == "" {
 		version = "development"
 	}

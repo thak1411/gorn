@@ -2,9 +2,14 @@ package gorn
 
 import (
 	"database/sql"
+	"database/sql/driver"
+	"encoding/hex"
 	"fmt"
+	"math"
 	"reflect"
+	"strconv"
 	"strings"
+	"time"
 )
 
 type Sql struct {
@@ -479,7 +484,7 @@ func (s *Sql) Full() *Sql {
 // Example:
 // "TABLE `table_name` "
 func (s *Sql) Table(tableName string) *Sql {
-	s.query += "TABLE `" + tableName + "` "
+	s.query += "TABLE " + quoteMigrationIdentifier(tableName) + " "
 	return s
 }
 
@@ -511,7 +516,7 @@ func (s *Sql) Add() *Sql {
 // Example:
 // "ADD COLUMN `column` `column_type` `column_options` "
 func (s *Sql) AddColumn(column, columnType, columnOptions string) *Sql {
-	s.query += "ADD COLUMN `" + column + "` " + columnType + " " + columnOptions + " "
+	s.query += "ADD COLUMN " + quoteMigrationIdentifier(column) + " " + columnType + " " + columnOptions + " "
 	return s
 }
 
@@ -520,12 +525,12 @@ func (s *Sql) AddColumn(column, columnType, columnOptions string) *Sql {
 // "ADD INDEX `index` (column1(sub_part) ASC, column2 DESC, ...) "
 func (s *Sql) AddIndex(indexName string, columnNames []string, columnSubParts []sql.NullInt64, columnOrders []string, isUnique bool) *Sql {
 	if isUnique {
-		s.query += "ADD UNIQUE INDEX `" + indexName + "` ("
+		s.query += "ADD UNIQUE INDEX " + quoteMigrationIdentifier(indexName) + " ("
 	} else {
-		s.query += "ADD INDEX `" + indexName + "` ("
+		s.query += "ADD INDEX " + quoteMigrationIdentifier(indexName) + " ("
 	}
 	for i, column := range columnNames {
-		s.query += "`" + column + "` "
+		s.query += quoteMigrationIdentifier(column) + " "
 		if columnSubParts[i].Valid {
 			s.query += "(" + fmt.Sprint(columnSubParts[i].Int64) + ") "
 		}
@@ -540,7 +545,7 @@ func (s *Sql) AddIndex(indexName string, columnNames []string, columnSubParts []
 // Example:
 // "MODIFY COLUMN `column` `column_type` `column_options` "
 func (s *Sql) ModifyColumn(column, columnType, columnOptions string) *Sql {
-	s.query += "MODIFY COLUMN " + column + " " + columnType + " " + columnOptions + " "
+	s.query += "MODIFY COLUMN " + quoteMigrationIdentifier(column) + " " + columnType + " " + columnOptions + " "
 	return s
 }
 
@@ -548,7 +553,7 @@ func (s *Sql) ModifyColumn(column, columnType, columnOptions string) *Sql {
 // Example:
 // "DROP COLUMN `column` "
 func (s *Sql) DropColumn(column string) *Sql {
-	s.query += "DROP COLUMN `" + column + "` "
+	s.query += "DROP COLUMN " + quoteMigrationIdentifier(column) + " "
 	return s
 }
 
@@ -556,7 +561,7 @@ func (s *Sql) DropColumn(column string) *Sql {
 // Example:
 // "DROP INDEX `index` "
 func (s *Sql) DropIndex(index string) *Sql {
-	s.query += "DROP INDEX `" + index + "` "
+	s.query += "DROP INDEX " + quoteMigrationIdentifier(index) + " "
 	return s
 }
 
@@ -572,7 +577,7 @@ func (s *Sql) DropPrimaryKey() *Sql {
 // Example:
 // "DROP FOREIGN KEY `key` "
 func (s *Sql) DropForeignKey(key string) *Sql {
-	s.query += "DROP FOREIGN KEY `" + key + "` "
+	s.query += "DROP FOREIGN KEY " + quoteMigrationIdentifier(key) + " "
 	return s
 }
 
@@ -582,7 +587,7 @@ func (s *Sql) DropForeignKey(key string) *Sql {
 func (s *Sql) AddPrimaryKey(columns []string) *Sql {
 	s.query += "ADD PRIMARY KEY ("
 	for _, column := range columns {
-		s.query += column + ", "
+		s.query += quoteMigrationIdentifier(column) + ", "
 	}
 	s.query = s.query[:len(s.query)-2] + ") "
 	return s
@@ -592,30 +597,83 @@ func (s *Sql) AddPrimaryKey(columns []string) *Sql {
 // Example:
 // "ADD CONSTRAINT `constraintName` FOREIGN KEY (`columnName`) REFERENCES `referencedColumnName` (`re`) "
 func (s *Sql) AddForeignKey(foreignKey *DBForeignKey) *Sql {
-	s.query += "ADD CONSTRAINT `" + foreignKey.ConstraintName +
-		"` FOREIGN KEY (`" + foreignKey.ColumnName + "`) REFERENCES `" +
-		foreignKey.ReferencedTableName + "` (`" + foreignKey.ReferencedColumnName + "`) "
-
+	s.query += "ADD CONSTRAINT " + quoteMigrationIdentifier(foreignKey.ConstraintName) +
+		" FOREIGN KEY (" + quoteMigrationIdentifier(foreignKey.ColumnName) + ") REFERENCES " +
+		quoteMigrationIdentifier(foreignKey.ReferencedTableName) + " (" + quoteMigrationIdentifier(foreignKey.ReferencedColumnName) + ") "
+	for _, action := range []struct{ clause, rule string }{{"UPDATE", foreignKey.UpdateRule}, {"DELETE", foreignKey.DeleteRule}} {
+		if action.rule == "" {
+			continue
+		}
+		rule := strings.ToUpper(action.rule)
+		if !oneOf(rule, "NO ACTION", "RESTRICT", "CASCADE", "SET NULL") {
+			panic("gorn: invalid foreign-key action")
+		}
+		s.query += "ON " + action.clause + " " + rule + " "
+	}
 	return s
 }
 
-// Add Default Clause
-// Example:
-// "DEFAULT `defaultValue` "
-// TODO: Fix Default Option
-// If defaultValue is string, it must be quoted like `"defaultValue"`
-// If defaultValue is nil, it must be NULL like `NULL`
-// If defaultValue is Integer or Float, it must be unquoted like `123
+// Default adds a literal DEFAULT value. Strings and bytes use hex literals so
+// quotes/backslashes are safe under either NO_BACKSLASH_ESCAPES setting.
+// Expressions are intentionally not accepted as strings. Unsupported Go values
+// panic, consistently with other invalid inputs to this SQL builder.
 func (s *Sql) Default(defaultValue interface{}) *Sql {
-	// s.query += "DEFAULT " + fmt.Sprintf("%v", defaultValue) + " "
+	s.query += "DEFAULT " + sqlDefaultLiteral(defaultValue) + " "
 	return s
+}
+
+func sqlDefaultLiteral(value interface{}) string {
+	if value == nil {
+		return "NULL"
+	}
+	v := reflect.ValueOf(value)
+	if v.Kind() == reflect.Ptr && v.IsNil() {
+		return "NULL"
+	}
+	if valuer, ok := value.(driver.Valuer); ok {
+		converted, err := valuer.Value()
+		if err != nil {
+			panic(fmt.Sprintf("gorn: default value: %v", err))
+		}
+		return sqlDefaultLiteral(converted)
+	}
+	if stamp, ok := value.(time.Time); ok {
+		return "'" + stamp.Format("2006-01-02 15:04:05.999999") + "'"
+	}
+	if bytes, ok := value.([]byte); ok {
+		if bytes == nil {
+			return "NULL"
+		}
+		return "X'" + hex.EncodeToString(bytes) + "'"
+	}
+	switch v.Kind() {
+	case reflect.String:
+		return "X'" + hex.EncodeToString([]byte(v.String())) + "'"
+	case reflect.Bool:
+		if v.Bool() {
+			return "1"
+		}
+		return "0"
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return strconv.FormatInt(v.Int(), 10)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return strconv.FormatUint(v.Uint(), 10)
+	case reflect.Float32, reflect.Float64:
+		f := v.Float()
+		if math.IsNaN(f) || math.IsInf(f, 0) {
+			panic("gorn: non-finite default")
+		}
+		return strconv.FormatFloat(f, 'g', -1, v.Type().Bits())
+	default:
+		panic(fmt.Sprintf("gorn: unsupported default value %T", value))
+	}
 }
 
 // Add After Clause
 // Example:
 // "AFTER `column` "
 func (s *Sql) After(column string) *Sql {
-	s.query += "AFTER " + column + " "
+	s.query += "AFTER " + quoteMigrationIdentifier(column) + " "
 	return s
 }
 

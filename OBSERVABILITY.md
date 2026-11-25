@@ -13,7 +13,7 @@ requests for 25 seconds. `RunContext` and `ServeContext` support custom lifecycl
 and listeners. Hijacked connections must be closed by the application.
 
 The optional `observe` package writes one JSON object per stdout line. Configure
-`PPS_ECOSYSTEM_ENV`, `PPS_VERSION`, and `LOG_LEVEL` (default INFO), then call
+`GORN_ENV`, `GORN_VERSION`, and `LOG_LEVEL` (default INFO), then call
 `observe.Configure("service-name")`. It does not open files or send notifications.
 
 Install `observe.HTTP` to record status, route, duration, bytes and request ID.

@@ -16,9 +16,9 @@ type migrationModel struct {
 	ForeignKeys []*migrationModelFK
 }
 type migrationModelColumn struct {
-	Name, Type                     string
-	Nullable, Auto, Binary, Unique bool
-	Default                        *string
+	Name, Type             string
+	Nullable, Auto, Binary bool
+	Default                *string
 }
 type migrationModelFK struct {
 	Column, RefTable, RefColumn, Delete, Update string
@@ -349,7 +349,7 @@ func parseMigrationModel(table MigrationTable, noBackslash bool) (*migrationMode
 		if err != nil {
 			return nil, fmt.Errorf("%s.%s: %w", table.Name, name, err)
 		}
-		c := &migrationModelColumn{Name: name, Type: typeSQL, Nullable: !opts["NN"] && !opts["PK"] && !opts["AI"], Auto: opts["AI"], Binary: opts["BIN"], Unique: opts["UQ"]}
+		c := &migrationModelColumn{Name: name, Type: typeSQL, Nullable: !opts["NN"] && !opts["PK"] && !opts["AI"], Auto: opts["AI"], Binary: opts["BIN"]}
 		if c.Auto {
 			autoCount++
 			if integerMigrationType.FindStringSubmatch(typeSQL) == nil {

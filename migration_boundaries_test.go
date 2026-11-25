@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-func TestMySQLMigrationUniqueTagSurvivesIndexChanges(t *testing.T) {
+func TestMySQLMigrationLegacyUQDoesNotRecreateRemovedIndex(t *testing.T) {
 	for _, drop := range []bool{false, true} {
 		t.Run(fmt.Sprint(drop), func(t *testing.T) {
 			db := newMigrationTestDB(t)
@@ -29,8 +29,8 @@ func TestMySQLMigrationUniqueTagSurvivesIndexChanges(t *testing.T) {
 			opts := MigrationOptions{AllowUnsafeChanges: true, AllowDropIndexes: drop}
 			p := db.plan(t, tables, indexes, opts)
 			db.apply(t, p)
-			if _, err := db.h.DB.Exec("INSERT INTO t VALUES(2,7)"); err == nil {
-				t.Fatal("UQ constraint lost when old index changed")
+			if _, err := db.h.DB.Exec("INSERT INTO t VALUES(2,7)"); err != nil {
+				t.Fatalf("annotation recreated an explicitly removed unique index: %v", err)
 			}
 			db.assertNoop(t, tables, indexes, opts)
 		})
@@ -71,9 +71,10 @@ func TestMySQLMigrationBinaryAndAutoIncrementWithoutPrimary(t *testing.T) {
 			ID int `rnsql:"id" rntype:"INT" rnopt:"AI UQ"`
 		}
 		tables := []MigrationTable{{"t", model{}}}
-		db.apply(t, db.plan(t, tables, nil))
+		indexes := []*DBIndex{migrationIndex("t", "id_unique", DBIndexTypeUnique, "id")}
+		db.apply(t, db.plan(t, tables, indexes))
 		db.exec(t, "INSERT INTO t () VALUES ()")
-		db.assertNoop(t, tables, nil)
+		db.assertNoop(t, tables, indexes)
 	})
 	t.Run("auto_unindexed_rejected", func(t *testing.T) {
 		db := newMigrationTestDB(t)

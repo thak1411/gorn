@@ -61,17 +61,6 @@ func buildMigrationPlan(s *migrationSchema, tables []MigrationTable, indexes []*
 		if desired == nil {
 			desired = make(map[string]*DBIndex)
 		}
-		// UQ is a real unique constraint, but do not duplicate an equivalent
-		// user-named unique index or single-column primary key.
-		if m != nil {
-			for _, c := range m.Columns {
-				if !c.Unique || hasMigrationUnique(c.Name, m.Primary, desired, old, options) {
-					continue
-				}
-				idx := &DBIndex{TableName: name, IndexName: migrationObjectName("GORN_UQ_", name, c.Name), IndexType: DBIndexTypeUnique, Columns: []*DBIndexColumn{{ColumnName: c.Name, ASC: true}}}
-				desired[strings.ToLower(idx.IndexName)] = idx
-			}
-		}
 		// Validate index columns against the complete resulting column set.
 		available := make(map[string]bool)
 		if old != nil && (!options.AllowDropColumns || m == nil) {
@@ -238,37 +227,6 @@ func equalMigrationIndex(old *migrationIndexState, desired *DBIndex) bool {
 		}
 	}
 	return true
-}
-
-func hasMigrationUnique(column string, primary []string, desired map[string]*DBIndex, old *migrationTableState, options MigrationOptions) bool {
-	if len(primary) == 1 && strings.EqualFold(primary[0], column) {
-		return true
-	}
-	for _, idx := range desired {
-		if idx.IndexType == DBIndexTypeUnique && len(idx.Columns) == 1 && strings.EqualFold(idx.Columns[0].ColumnName, column) && !idx.Columns[0].SubPart.Valid {
-			return true
-		}
-	}
-	if old != nil {
-		for key, idx := range old.Indexes {
-			// A unique index scheduled for removal/replacement cannot satisfy
-			// the model's UQ requirement in the resulting schema.
-			if desired[key] != nil {
-				continue
-			}
-			if key == "primary" {
-				if len(primary) != 0 || options.AllowUnsafeChanges {
-					continue
-				}
-			} else if options.AllowDropIndexes {
-				continue
-			}
-			if idx.Unique && len(idx.Parts) == 1 && idx.Parts[0].Name.Valid && strings.EqualFold(idx.Parts[0].Name.String, column) && !idx.Parts[0].Prefix.Valid {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func migrationColumnIndexed(column string, primary []string, desired map[string]*DBIndex) bool {

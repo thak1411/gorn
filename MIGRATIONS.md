@@ -69,8 +69,11 @@ type Post struct {
 - Integer display widths and aliases such as `INTEGER`/`INT`, `BOOLEAN`/`TINYINT`
   are normalized. Decimal precision, unsignedness, enum/set member order and
   temporal precision are significant.
-- `UQ` now enforces single-column uniqueness. An equivalent primary/unique index
-  is reused; composite/prefix indexes do not imply single-column uniqueness.
+- `UQ` is a legacy annotation and does not create an index. Declare uniqueness
+  explicitly with `DBIndexTypeUnique`: one entry with multiple `Columns` creates
+  a composite unique key; separate entries create independent unique keys.
+  Existing unique indexes are preserved by default, including those created by
+  an earlier version; removing an annotation does not remove a constraint.
 - Omitted `rndefault` preserves an existing default. It does not use a Go zero
   value as a backfill. For new columns it specifies no default. Supported explicit
   defaults are SQL string/numeric literals, NULL, TRUE/FALSE and
